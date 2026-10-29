@@ -1,0 +1,69 @@
+{
+  "Date": "2026-10-21",
+  "MatlabVersion": "25.2.0.2998904 (R2025b)",
+  "Passed": true,
+  "ReferenceRevision": "3c74ee2af2f79aa360093cc517e38bf465ec8c5b",
+  "Cases": 8,
+  "RecordedSteps": 1540,
+  "MaximumTemperatureError_C": 1.0942358130705543e-12,
+  "MaximumMoistureError_g_s": 5.234701561107613e-14,
+  "CalibrationGain": 1.6638567475606254,
+  "Summary": {
+    "Duration_hr": 8,
+    "AverageRate_W": 243.15262776666177,
+    "PeakRate_W": 918.7568921990021,
+    "AverageMoisture_g_min": 4.127760279860387,
+    "PeakMoisture_g_min": 25.115557273648
+  },
+  "CalibratedTotal_g": 1801.2044857572598,
+  "PreviousMetManCalibration": {
+    "Gain": 1.6638567475606254,
+    "ActualSourceWindows": [
+      {
+        "Windows_hr": 8,
+        "SourceTotal_g": 1876.5000000000002,
+        "CalibratedTotal_g": 1876.7843177229238,
+        "SourceAverage_g_min": 3.9093750000000003,
+        "CalibratedAverage_g_min": 3.9099673285894245,
+        "Error_percent": 0.015151490696707626
+      },
+      {
+        "Windows_hr": 16,
+        "SourceTotal_g": 2514.9000000000005,
+        "CalibratedTotal_g": 2514.8999999999987,
+        "SourceAverage_g_min": 2.6196875000000004,
+        "CalibratedAverage_g_min": 2.6196874999999986,
+        "Error_percent": 7.771561172376096e-14
+      }
+    ],
+    "MaximumIntervalError_percent": 61.65181173847494,
+    "Reweighted100minTotal_g": 2073.6597148949877,
+    "Reweighted100minError_percent": 3.2159336450057197,
+    "Scope": "Actual MetMan source totals and averages; not every interval or arbitrary new profiles",
+    "Passed": true
+  },
+  "Checks": [
+    "All 85 temperatures and raw moisture matched Python",
+    "Accepted EVA moisture total, average and peak preserved",
+    "Earth inputs; calibration and FOS applied once",
+    "Metabolic duration-weighted average and peak checked",
+    "Three graphs produced; partial steps and duplicate timestamps checked"
+  ],
+  "Cleanup": {
+    "RemovedFiles": 46,
+    "RemovedBytes": 10197548,
+    "RuntimeDependency": "MATLAB only"
+  },
+  "SHA256": {
+    "Nominal_Metabolic_Profile.m": "62c5dcc7ae27473dc1759a825820ebbae2a9263f12db9e737ccdefbafabbe869",
+    "JOS3/createJOS3.m": "adfc922e121fc76215cc8becb0787518c3d47f5325acd6b05e6f48c4e7a2d19a",
+    "JOS3/jos3Bloodflow.m": "9227d15d95160068bde4d4827547efb8df4ffebbf7a3bf32b876744aaa9bca8f",
+    "JOS3/jos3Coefficients.m": "b08742c0c463c5a45310bf43eb2a712727379dc57a2e485a67c020e5d7dc4d42",
+    "JOS3/jos3NeutralTemperature.m": "681d938f90b19582adf18aa6daec6c76d9db76ee5220a787b6ab08f5eed797bc",
+    "JOS3/jos3Parameters.m": "249b5c9ab6d42b4ef6eba445d07ebc2900f9be3ec2ea6f76f2330921ecea54a0",
+    "JOS3/runJOS3Profile.m": "25e11dc664d92d12373da960ae0cd1d2583efa3a36e1a595df640daa980208f4",
+    "JOS3/stepJOS3.m": "e231eb0ea1424e594f61c7162e889d6819a57f2c48e48ec58bc2261abcd44317",
+    "Metabolic.xlsx": "08026af33e57ea65dd68cb70e92d8752c30cf1a5ce89df94055f9a422f6bb5a6",
+    "Raw_Nominal.csv": "229d111a1b459df573d2b3b4dc39abd27abcdc487ad3c04030d38157565ab089"
+  }
+}

@@ -1,0 +1,228 @@
+clc;
+clear;
+close all;
+
+%% Astronaut Moisture Source
+AverageMoisture_g_min = 1.5424; % Enter metabolic average vapor output, including its FOS.
+Water_Load_FOS = 1.0; % Additional margin only; do not apply FOS twice.
+EVA_Duration_min = 480;
+
+%% Controlled Suit Conditions and Airflow
+Gas.Pressure_kPa = 31.7159;
+Gas.SuitTemperature_C = 22;
+Gas.SuitRH_percent = 30;
+Gas.Flow_CFM = 6; 
+
+%% Above-Freezing Condenser Assumptions
+Condenser.SurfaceTemperature_C = 1; % Minimum wetted-surface temperature; must remain above 0 C.
+Condenser.GasFilmCoefficient_W_m2K = 20; % ASSUMED; replace with tested/correlated performance.
+Condenser.OverallCoefficient_W_m2K = 15; % ASSUMED gas-to-surface coefficient for total wet-coil duty.
+% Without channel geometry, transfer coefficients must be supplied as assumptions.
+% Required area is exposed transfer area, not internal microscopic pore area.
+% No plate-count, dimensions, freezing banks, defrost hardware or mass estimate.
+
+%% Continuous Liquid Separator Assumptions
+Separator.Thickness_m = 0.001;
+Separator.Permeability_m2 = 7.7e-16;
+Separator.PermeabilityRetention = 0.50;
+Separator.SuctionPressure_Pa = 8000;
+Separator.LargestPoreDiameter_m = 1.7e-6;
+Separator.BubblePressureFOS = 2;
+Separator.MinimumLiquidPressure_kPa = 10;
+Substrate.PoreDiameter_m = 58.42e-6;
+Substrate.ContactAngle_deg = 20;
+Drain.PressureAllowance_Pa = 500; % ASSUMED wick/line/gravity pressure loss beyond retention pressure.
+% Darcy area is a continuous liquid-extraction estimate, not a routing design.
+
+%% Water Properties
+Water.Density_kg_m3 = 998;
+Water.Viscosity_Pa_s = 1.5e-3;
+Water.SurfaceTension_N_m = 0.075;
+Water.Cp_J_kgK = 4180;
+Water.VaporCp_J_kgK = 1860;
+Water.VaporEnthalpyAtZero_J_kg = 2500900;
+Water.VaporGasConstant_J_kgK = 461.52;
+
+%% Input Checks
+validateattributes(AverageMoisture_g_min, {'numeric'}, {'scalar', 'finite', 'positive'});
+validateattributes(Water_Load_FOS, {'numeric'}, {'scalar', 'finite', '>=', 1});
+validateattributes(Gas.SuitRH_percent, {'numeric'}, {'scalar', 'finite', '>', 0, '<=', 100});
+validateattributes(Gas.SuitTemperature_C, {'numeric'}, {'scalar', 'finite', '>', 0, '<=', 60});
+validateattributes(Condenser.SurfaceTemperature_C, {'numeric'}, {'scalar', 'finite', '>', 0});
+assert(Condenser.SurfaceTemperature_C < Gas.SuitTemperature_C, ...
+    'RH:Temperature', 'Condenser surface must be colder than suit air.');
+Positive = [EVA_Duration_min, Gas.Pressure_kPa, Gas.Flow_CFM, ...
+    Condenser.GasFilmCoefficient_W_m2K, Condenser.OverallCoefficient_W_m2K, ...
+    Separator.Thickness_m, Separator.Permeability_m2, Separator.SuctionPressure_Pa, ...
+    Separator.LargestPoreDiameter_m, Separator.MinimumLiquidPressure_kPa, ...
+    Substrate.PoreDiameter_m, Water.Density_kg_m3, Water.Viscosity_Pa_s];
+assert(all(isfinite(Positive) & Positive > 0), 'RH:Inputs', 'Inputs must be positive and finite.');
+assert(Separator.PermeabilityRetention > 0 && Separator.PermeabilityRetention <= 1 && ...
+    Separator.BubblePressureFOS >= 1 && Substrate.ContactAngle_deg >= 0 && ...
+    Substrate.ContactAngle_deg < 90 && isfinite(Drain.PressureAllowance_Pa) && ...
+    Drain.PressureAllowance_Pa >= 0, 'RH:DrainInputs', 'Check drainage assumptions.');
+
+%% Source Load and Oxygen Properties
+Water.DesignRate_kg_s = AverageMoisture_g_min * Water_Load_FOS / 60000;
+Gas.Flow_L_min = Gas.Flow_CFM * 28.316846592;
+Gas.Flow_m3_s = Gas.Flow_L_min / 60000;
+Gas.Pressure_Pa = Gas.Pressure_kPa * 1000;
+Gas.Temperature_K = Gas.SuitTemperature_C + 273.15;
+Gas.Constant_J_kgK = 8.314462618 / 0.0319988;
+Gas.MolecularMassRatio = Gas.Constant_J_kgK / Water.VaporGasConstant_J_kgK;
+Gas.InletVaporPressure_Pa = Gas.SuitRH_percent / 100 * saturationPressure(Gas.SuitTemperature_C);
+assert(Gas.InletVaporPressure_Pa < Gas.Pressure_Pa, 'RH:Pressure', 'Vapor pressure must be below gas pressure.');
+Gas.InletHumidityRatio = Gas.MolecularMassRatio * Gas.InletVaporPressure_Pa ...
+    / (Gas.Pressure_Pa - Gas.InletVaporPressure_Pa);
+Gas.DryDensity_kg_m3 = (Gas.Pressure_Pa - Gas.InletVaporPressure_Pa) / (Gas.Constant_J_kgK * Gas.Temperature_K);
+Gas.DryFlow_kg_s = Gas.DryDensity_kg_m3 * Gas.Flow_m3_s;
+Gas.Density_kg_m3 = Gas.DryDensity_kg_m3 + Gas.InletVaporPressure_Pa ...
+    / (Water.VaporGasConstant_J_kgK * Gas.Temperature_K);
+[Gas.Cp_J_kgK, Gas.Viscosity_Pa_s, Gas.Conductivity_W_mK] = oxygenProperties(Gas.Temperature_K);
+Gas.VaporDiffusivity_m2_s = 2.5e-5 * (Gas.Temperature_K / 298.15)^1.75 * 101.325 / Gas.Pressure_kPa;
+Gas.Prandtl = Gas.Cp_J_kgK * Gas.Viscosity_Pa_s / Gas.Conductivity_W_mK;
+Gas.Schmidt = Gas.Viscosity_Pa_s / (Gas.Density_kg_m3 * Gas.VaporDiffusivity_m2_s);
+% Chilton-Colburn heat/mass-transfer analogy; coefficient remains a design assumption.
+Gas.MassTransfer_m_s = Condenser.GasFilmCoefficient_W_m2K / (Gas.Density_kg_m3 * Gas.Cp_J_kgK) ...
+    * (Gas.Prandtl / Gas.Schmidt)^(2/3);
+
+%% Above-Freezing Feasibility
+Selected = condenserArea(Condenser.SurfaceTemperature_C, Gas, Water, Condenser);
+ZeroLimit = condenserArea(0, Gas, Water, Condenser); % Ideal limit approached from above freezing.
+GrossVapor_g_min = Gas.DryFlow_kg_s * Gas.InletHumidityRatio * 60000;
+MinimumFlow_L_min = Inf;
+if Selected.MaximumRemoval_g_min > 0
+    MinimumFlow_L_min = Gas.Flow_L_min * Water.DesignRate_kg_s * 60000 / Selected.MaximumRemoval_g_min;
+end
+% At fixed actual flow, solve the inlet vapor pressure needed to reach surface
+% equilibrium while removing the load. Equality requires infinite transfer area.
+SurfacePressure_Pa = saturationPressure(Condenser.SurfaceTemperature_C);
+RequiredInletPressure_Pa = SurfacePressure_Pa + Water.DesignRate_kg_s * Water.VaporGasConstant_J_kgK ...
+    * Gas.Temperature_K / Gas.Flow_m3_s * (Gas.Pressure_Pa - SurfacePressure_Pa) / Gas.Pressure_Pa;
+MinimumSuitRH_percent = 100 * RequiredInletPressure_Pa / saturationPressure(Gas.SuitTemperature_C);
+Feasibility_Summary = table(Gas.Flow_CFM, Gas.Flow_L_min, Water.DesignRate_kg_s * 60000, ...
+    GrossVapor_g_min, ZeroLimit.MaximumRemoval_g_min, Selected.MaximumRemoval_g_min, ...
+    MinimumFlow_L_min, MinimumSuitRH_percent, Selected.Feasible, 'VariableNames', ...
+    {'ActualFlow_CFM', 'ActualFlow_L_min', 'RequiredRemoval_g_min', 'TotalInletVapor_g_min', ...
+    'LimitAtZeroC_g_min', 'LimitAtSelectedSurface_g_min', 'MinimumFlowLimit_L_min', ...
+    'MinimumSuitRHLimit_percent', 'AboveFreezingFeasible'});
+disp(Feasibility_Summary);
+if Selected.Feasible
+    fprintf('Above-freezing condensation is feasible under the stated transfer assumptions.\n');
+else
+    fprintf('Above-freezing sizing is infeasible: %s\n', char(Selected.Status));
+    fprintf('Increasing area cannot overcome the equilibrium/flow limit. Inf means no finite area meets the load.\n');
+end
+fprintf('Minimum flow/RH are infinite-area limits; finite hardware needs margin above them.\n');
+
+%% Continuous Liquid Extraction Area
+RetentionPressure_Pa = 4 * Water.SurfaceTension_N_m * cosd(Substrate.ContactAngle_deg) / Substrate.PoreDiameter_m;
+SeparatorPressure_Pa = Separator.SuctionPressure_Pa - RetentionPressure_Pa - Drain.PressureAllowance_Pa;
+BubblePressure_Pa = 4 * Water.SurfaceTension_N_m * cosd(Substrate.ContactAngle_deg) / Separator.LargestPoreDiameter_m;
+DrainFeasible = SeparatorPressure_Pa > 0 && ...
+    BubblePressure_Pa / Separator.SuctionPressure_Pa >= Separator.BubblePressureFOS && ...
+    Gas.Pressure_kPa - Separator.SuctionPressure_Pa / 1000 >= Separator.MinimumLiquidPressure_kPa;
+SeparatorArea_m2 = Inf;
+if DrainFeasible
+    LiquidFlow_m3_s = Water.DesignRate_kg_s / Water.Density_kg_m3;
+    SeparatorArea_m2 = LiquidFlow_m3_s * Water.Viscosity_Pa_s * Separator.Thickness_m ...
+        / (Separator.Permeability_m2 * Separator.PermeabilityRetention * SeparatorPressure_Pa);
+end
+
+%% Required Component Areas
+% Separator inserts displace transfer face: report non-overlapping areas.
+Component = ["Condensing heat/mass-transfer face"; "Liquid separator inserts"; "Combined exposed face"];
+RequiredArea_m2 = [Selected.RequiredArea_m2; SeparatorArea_m2; Selected.RequiredArea_m2 + SeparatorArea_m2];
+Area_Summary = table(Component, RequiredArea_m2);
+disp(Area_Summary);
+Thermal_Summary = table(Condenser.SurfaceTemperature_C, Selected.OutletTemperature_C, ...
+    Selected.ReheatedRH_percent, Selected.CoolingDuty_W, Selected.ExternalReheat_W, ...
+    Selected.MassTransferArea_m2, Selected.HeatTransferArea_m2, DrainFeasible, ...
+    'VariableNames', {'Surface_C', 'ColdOutlet_C', 'ReheatedRH_percent', 'CoolingDuty_W', ...
+    'ExternalReheat_W', 'MassTransferArea_m2', 'HeatTransferArea_m2', 'LiquidExtractionFeasible'});
+disp(Thermal_Summary);
+fprintf('Full-EVA water removal requirement: %.3f kg. No freeze/defrost or ice-storage allowance is included.\n', ...
+    Water.DesignRate_kg_s * EVA_Duration_min * 60);
+fprintf('Area-only estimate: coefficients, uniform surface temperature and saturated outlet are assumptions.\n');
+fprintf('Liquid-extraction area alone does not establish overall condenser feasibility or complete wick routing.\n');
+
+%% Above-Freezing Capacity Graph
+Surface_C = linspace(0, Gas.SuitTemperature_C, 100);
+MaximumRemoval_g_min = zeros(size(Surface_C));
+for Index = 1:numel(Surface_C)
+    Trial = condenserArea(Surface_C(Index), Gas, Water, Condenser);
+    MaximumRemoval_g_min(Index) = Trial.MaximumRemoval_g_min;
+end
+figure;
+plot(Surface_C, MaximumRemoval_g_min);
+hold on;
+yline(Water.DesignRate_kg_s * 60000, '--', 'Required removal');
+xline(Condenser.SurfaceTemperature_C, ':', 'Selected surface');
+xlabel('Condenser surface temperature (C)');
+ylabel('Infinite-area removal limit (g/min)');
+title('Above-Freezing Feasibility at Fixed Airflow');
+grid on;
+
+%% Local Functions
+function Result = condenserArea(Surface_C, Gas, W, C)
+% Steady wet-coil estimate with uniform surface and saturated design outlet.
+% Heat and mass areas are capacity estimates, not a coupled coil simulation.
+pSurface = saturationPressure(Surface_C);
+wSurface = Gas.MolecularMassRatio * pSurface / (Gas.Pressure_Pa - pSurface);
+MaximumRate = max(0, Gas.DryFlow_kg_s * (Gas.InletHumidityRatio - wSurface));
+Result = struct('MaximumRemoval_g_min', MaximumRate * 60000, 'Feasible', false, ...
+    'Status', "Required removal exceeds the surface-equilibrium limit at this airflow.", ...
+    'RequiredArea_m2', Inf, 'MassTransferArea_m2', Inf, 'HeatTransferArea_m2', Inf, ...
+    'OutletTemperature_C', NaN, 'ReheatedRH_percent', NaN, 'CoolingDuty_W', NaN, 'ExternalReheat_W', NaN);
+if W.DesignRate_kg_s >= MaximumRate || MaximumRate <= 0
+    if W.DesignRate_kg_s >= Gas.DryFlow_kg_s * Gas.InletHumidityRatio
+        Result.Status = "Required removal exceeds all vapor entering in the gas, even with a completely dry outlet.";
+    end
+    return;
+end
+wOutlet = Gas.InletHumidityRatio - W.DesignRate_kg_s / Gas.DryFlow_kg_s;
+pOutlet = Gas.Pressure_Pa * wOutlet / (Gas.MolecularMassRatio + wOutlet);
+Outlet_C = fzero(@(T) saturationPressure(T) - pOutlet, [Surface_C, Gas.SuitTemperature_C]);
+MassArea = -Gas.Flow_m3_s / Gas.MassTransfer_m_s * log(1 - W.DesignRate_kg_s / MaximumRate);
+hIn = Gas.Cp_J_kgK * Gas.SuitTemperature_C + Gas.InletHumidityRatio ...
+    * (W.VaporEnthalpyAtZero_J_kg + W.VaporCp_J_kgK * Gas.SuitTemperature_C);
+hOut = Gas.Cp_J_kgK * Outlet_C + wOutlet * (W.VaporEnthalpyAtZero_J_kg + W.VaporCp_J_kgK * Outlet_C);
+Cooling_W = Gas.DryFlow_kg_s * (hIn - hOut) - W.DesignRate_kg_s * W.Cp_J_kgK * Surface_C;
+HotApproach = Gas.SuitTemperature_C - Surface_C;
+ColdApproach = Outlet_C - Surface_C;
+LMTD_K = HotApproach;
+if abs(HotApproach - ColdApproach) > 1e-10
+    LMTD_K = (HotApproach - ColdApproach) / log(HotApproach / ColdApproach);
+end
+HeatArea = Cooling_W / (C.OverallCoefficient_W_m2K * LMTD_K);
+Result.Feasible = true;
+Result.Status = "Feasible with finite area under the assumed transfer coefficients.";
+Result.MassTransferArea_m2 = MassArea;
+Result.HeatTransferArea_m2 = HeatArea;
+Result.RequiredArea_m2 = max(MassArea, HeatArea);
+Result.OutletTemperature_C = Outlet_C;
+Result.ReheatedRH_percent = 100 * pOutlet / saturationPressure(Gas.SuitTemperature_C);
+Result.CoolingDuty_W = Cooling_W;
+Result.ExternalReheat_W = Gas.DryFlow_kg_s * (Gas.Cp_J_kgK + wOutlet * W.VaporCp_J_kgK) ...
+    * (Gas.SuitTemperature_C - Outlet_C);
+end
+
+function [Cp, Viscosity, Conductivity] = oxygenProperties(T_K)
+% NIST Shomate Cp (100-700 K), Lemmon-Jacobsen dilute O2 transport (2004).
+% https://webbook.nist.gov/cgi/cbook.cgi?ID=C7782447&Mask=1
+% https://trc.nist.gov/refprop/FAQ/NAO.PDF, Eqs. 2 and 5, Tables I, II, IV.
+t = T_K / 1000;
+Cp = (31.32234 - 20.23531 * t + 57.86644 * t^2 - 36.50624 * t^3 - 0.007374 / t^2) / 0.0319988;
+Log_Tstar = log(T_K / 118.5);
+Collision_Integral = exp(0.431 - 0.4623 * Log_Tstar + 0.08406 * Log_Tstar^2 + ...
+    0.005341 * Log_Tstar^3 - 0.00331 * Log_Tstar^4);
+Viscosity_microPa_s = 0.0266958 * sqrt(31.9988 * T_K) / (0.3428^2 * Collision_Integral);
+Viscosity = Viscosity_microPa_s * 1e-6;
+Conductivity = (1.036 * Viscosity_microPa_s + 6.283 * (154.581 / T_K)^(-0.9) ...
+    - 4.262 * (154.581 / T_K)^(-0.6)) * 1e-3;
+end
+
+function Pressure_Pa = saturationPressure(Temperature_C)
+% Buck saturation pressure over liquid water; this script uses T >= 0 C.
+Pressure_Pa = 611.21 * exp((18.678 - Temperature_C / 234.5) * Temperature_C / (257.14 + Temperature_C));
+end

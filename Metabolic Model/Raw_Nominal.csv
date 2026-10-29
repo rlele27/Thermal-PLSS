@@ -1,0 +1,27 @@
+"Start time
+(min)","Metabolic rate
+(Btu/h)",Activity
+0,675,Nominal
+40,675,Nominal
+40,1100,Exercise - Resistance
+60,1100,Exercise - Resistance
+60,850,Nominal
+90,850,Nominal
+90,2000,Exercise - Aerobic
+100,2000,Exercise - Aerobic
+100,900,Above Nominal
+140,900,Above Nominal
+140,520,Nominal
+240,520,Nominal
+240,850,Exercise - Resistance
+270,850,Exercise - Resistance
+270,350,Nominal
+330,350,Nominal
+330,1250,Exercise - Resistance
+360,1250,Exercise - Resistance
+360,1000,Above Nominal
+440,1000,Above Nominal
+440,2000,Exercise - Aerobic
+450,2000,Exercise - Aerobic
+450,1100,Nominal
+480,1100,Nominal
