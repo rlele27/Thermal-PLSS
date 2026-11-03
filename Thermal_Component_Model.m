@@ -1,111 +1,13 @@
 % Raaghav Lele, Zach Alles
 % Date created: 10/19/2026
 % Thermal Component Model 
-clc
-clear
-close all;
-
-
-
-%% Part zero: Properties and Problem Definition
-% To call on a thermo property for water, use the following callout: 
-% XSteam('Thermo Prop','Pressure in bar','Temperature in C')
-% water_cp = 4.184; %J/g*C
-% water_rho = 1; %g/cm^3
-% sigma = 5.670374419e-8; % W/(m^2 K^4)
-% H = 0.5; % m height of the plss
-% W = 0.33; % m width of the plss
-% D = 0.3; % m depth of the plss
-% A_faces = [H*W; H*D; H*D; W*D; W*D]; % Face order: rear, right, left, top, bottom
-% theta = linspace(0,180,181); % sunrise - sunset assuming 2D rise and fall.
-% 
-% 
-% %% Part one: System Wide I/O - Heat acquisition and rejection [Zach Alles]
-% % This section will focus on taking in the source heat.
-% % The modeled human heat will come directly from the metabolic model. The 
-% % heat from each subsystem will also be added as inputs. This won't be just modeled as heat
-% % acquisition, but the way that we plan to acquire heat out of htat system
-% % (fans, radiators or whatever) will be modeled
-% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% % Assumptions: 
-% % Inputs include: (1) Incident Solar Irradiation
-% %                     -Solar flux at surface is 175W/m^2 (ASEN 5158 lecture
-% %                     notes)
-% %                 (2) Metabolic Heat Generation
-% %                     - Data importd from metabolic model
-% %                 (3) Solar Albedo
-% %                 (4) Ground IR
-% % Outpus include:
-% %                 (1) IR radiation (radiator)
-% %                 (2) Atmospheric convection
-% %
-% 
-% %%%%%%%%%%%%%% System Heat inputs %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% 
-% % Metabolic Rates
-% load("MetData.mat")
-% Metabolic_rates = Metdata.metrate; % W
-% time = Metdata.time;
-% 
-% % Solar Irradiance on the PLSS
-% q_flux_solar = 175; %W/m2 % Solar Irradiance on the Martian Surface 5158 textbook value
-% alpha_rad = 0.2; % Aeroglaze coating
-% A_rad_cross = sum(A_faces.*sind(theta)); % Cross sectional area receiving incident solar radiation.
-% Q_solar_irradiance = alpha_rad*A_rad_cross*q_flux_solar;
-% 
-% 
-% 
-% 
-% % Ground thermal infrared emission absorbed by one exposed face
-% % Assumptions: uniform diffuse ground, gray surfaces,
-% % flat terrain, no blockage, negligible short-path attenuation
-% 
-% T_ground = 235;        % average ground temp at perservance rover landing zone K; possibly replace with site/time-dependent input
-% epsilon_ground = 0.95; % emissivity of the ground
-% 
-% A_face_cross = 0.20;        % m^2; actual exposed face area
-% alpha_IR_face = 0.2; % Gray-surface approximation with aeroglaze coating
-% 
-% beta_deg = 90;        % Tilt of plate facing ground 0 = up-facing, 90 = vertical, 180 = down
-% F_ground = (1 - cosd(beta_deg))/2;
-% 
-% E_ground_IR = epsilon_ground * sigma * T_ground^4; % W/m^2
-% G_ground_IR = F_ground * E_ground_IR;              % W/m^2
-% Q_ground_IR_abs = alpha_IR_face * A_face * G_ground_IR; % W
-% 
-% % Q from Albedo
-% A_faces = [H*W; H*D; H*D; W*D; W*D];
-% F_ground = [0.5; 0.5; 0.5; 0; 1];
-% F_sky = 1 - F_ground;
-% 
-% Arad = sum(A_faces);
-% A_ground_weighted = sum(A_faces .* F_ground);
-% A_sky_weighted = sum(A_faces .* F_sky);
-% 
-% Q_albedo = alpha_solar .* rho_ground .* ...
-%            G_solar_ground .* A_ground_weighted;
-% 
-% %%%%%%%%%%%% System Outputs %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% 
-% % Convection (Forced) from the air on the PLSS
-% %Assume wind speeds of about 5 m/s, h = 1 W/m2K (From Hayman 2025)
-% h = 1; % W/(m^2K) average based on Hayman 2025
-% T_Rad = 309.6; % 
-% T_air = 210; % K; representative Martian near-surface temperature average
-% Q_conv = h * Arad * (T_Rad - T_air); % W leaving radiator surface
-% 
-% % Q needed out of the radiator
-% Q_rad = Q_solar + Q_ground_IR_abs + Metabolic_rates + Q_albedo - Q_conv;
-
-
-%% Chat edited Below
 
 clc
 clear
 close all
 
 %% Part zero: Properties and geometry
-
+fprintf("System Inputs/Output Analysis \n\n")
 water_cp = 4184;       % J/(kg K)
 water_rho = 1000;      % kg/m^3
 sigma = 5.670374419e-8; % W/(m^2 K^4)
@@ -128,12 +30,14 @@ A_sky_weighted = sum(A_faces .* F_sky);
 %% Metabolic input
 
 load("MetData.mat")
-Metabolic_rates = Metdata.metrate(:); % Column vector, W
-time = Metdata.time;
+Metabolic_rates = MetData.metrate; % Column vector, W
+time = MetData.time;
 
 % Preliminary assumption: all metabolic heat reaches cooling system
 Q_electrical = 10; % average assumption
 Q_internal = Metabolic_rates + Q_electrical;
+fprintf("Average internal heat generation due to metabolic and electical sources is %.2f Watts\n",mean(Q_internal))
+
 
 %% Environmental cases
 
@@ -154,10 +58,11 @@ rho_ground = 0.2;   % average Martian ground albedo
 % Environmental temperatures
 T_ground = 235; % K; prescribed ground-temperature scenario
 T_air = 210;    % K; prescribed air-temperature scenario
-T_sky = 170;    % K; illustrative EFFECTIVE radiative sky temperature
-T_Rad = 309.6;  % K; trial radiator surface temperature
+T_sky = 170;    % K; EFFECTIVE radiative sky temperature
+T_Rad = 300;  % K; trial radiator surface temperature Assume Skin temp is 307 and delta of 5 K drop from skin to Radiator 
 
 h = 1;         % W/(m^2 K); prescribed convection coefficient - Assumed from Hayman 2025 paper based on wind speed of 5 m/s
+
 
 %% Direct solar heating
 
@@ -168,6 +73,7 @@ A_rad_cross = H*W .* max(0, cosd(theta)) ...
             + W*D .* sind(theta); 
 
 Q_solar = alpha_solar .* A_rad_cross .* q_solar_DNI;
+fprintf("Direct normal incident Solar is %.2f Watts\n",mean(Q_solar))
 
 %% Reflected solar heating: albedo
 
@@ -176,6 +82,7 @@ G_solar_ground = q_solar_DNI .* sind(theta);
 
 Q_albedo = alpha_solar .* rho_ground .* ...
            G_solar_ground .* A_ground_weighted;
+fprintf("Albedo is %.2f Watts\n",mean(Q_albedo))
 
 %% Absorbed thermal infrared
 
@@ -183,15 +90,21 @@ Q_albedo = alpha_solar .* rho_ground .* ...
 Q_ground_IR_abs = alpha_IR * epsilon_ground * sigma * ...
                   T_ground^4 * A_ground_weighted;
 
+fprintf("Ground IR is %.2f Watts\n",mean(Q_ground_IR_abs))
+
 % Effective sky temperature represents incident sky IR
 Q_sky_IR_abs = alpha_IR * sigma * ...
                T_sky^4 * A_sky_weighted;
+fprintf("Sky IR is %.2f Watts\n",mean(Q_sky_IR_abs))
 
 %% Heat leaving radiator
 
 Q_conv = h * Arad * (T_Rad - T_air); % Signed: positive outward
+fprintf("Heat lost to Atmospheric Convection assuming 5 m/s windspeed is %.2f Watts\n",Q_conv)
 
 Q_IR_emit = epsilon_rad * sigma * Arad * T_Rad^4;
+fprintf("IR emitted from  the radiator is %.2f Watts\n",Q_IR_emit)
+fprintf("\n")
 
 %% System balance
 
@@ -200,8 +113,42 @@ Q_IR_emit = epsilon_rad * sigma * Arad * T_Rad^4;
 Q_cooling_available = Q_IR_emit + Q_conv ...
                     - Q_solar - Q_albedo ...
                     - Q_ground_IR_abs - Q_sky_IR_abs;
+fprintf("Average Cooling available is %.2f Watts\n",mean(Q_cooling_available))
 
 Q_cooling_available_nowind = Q_cooling_available - Q_conv;
+fprintf("Average Cooling available is %.2f Watts\n",mean(Q_cooling_available_nowind))
+fprintf("\n")
+
+% Plot I/O bar chart
+IOs = [mean(Q_solar); mean(Q_albedo); mean(Q_ground_IR_abs); ...
+       mean(Q_sky_IR_abs); Q_conv; Q_IR_emit];
+
+
+labels = ["Incident Solar", "Albedo", "Ground IR", "Sky IR", ...
+          "Convection Losses (wind)", "Radiator Output"];
+
+colors = lines(numel(IOs));  % One distinct color per bar
+
+figure()
+hold on
+
+for i = 1:numel(IOs)
+    bar(i, IOs(i), ...
+        "FaceColor", colors(i,:), ...
+        "DisplayName", labels(i));
+end
+
+hold off
+xticks(1:numel(IOs))
+xticklabels(labels)
+xtickangle(25)
+
+xlabel("System Thermal Inputs and Outputs (average magnitude)")
+ylabel("Watts")
+title("Martian PLSS Thermal Inputs and Outputs Model")
+legend("show", "Location", "northwest")
+grid on
+
 
 % Rows = metabolic samples; columns = solar-position cases
 % Uses MATLAB implicit expansion
@@ -253,7 +200,7 @@ grid on
 
 
 
-%% Part two: Heat Transport and Mass Flow [Raaghav Lele]
+%% Part two: Heat Transport and Mass Flow 
 % This section will follow that heat acquisition section and the results
 % from the previous section will be used as an input. Heat that is lost or
 % created through pipe flow will be modeled. Things such as heat loss through an insulation layer,
@@ -262,75 +209,266 @@ grid on
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Assumptions:
-% - Air in the PLSS is between 22-30 deg C. Air blows in around 30C and
-%   is cooled and then is passed back into the PLSS
+% - Air in the PLSS is between 12-30 deg C. Air blows in around 30C and
+%   is cooled and then is passed back into the PLSS at 22 deg C
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 % Heat Pipes (Interface between HEX and Radiator shell
 
-N_loops = 5;
-Q_transport = min(Q_cooling_available);        % W; selected heat transport requirement
-DeltaT_allow = 5;        % K; example design allocation
-
-Q_per_loop = Q_transport / N_loops;
-
-R_branch_max = DeltaT_allow / Q_per_loop; % K/W per branch
-R_parallel_max = DeltaT_allow / Q_transport; % K/W overall
 
 
-%% Heat-pipe condenser attachment: diameter sensitivity
+%% Heat Pipe sizing
+% Assumptions
+% We are aiming for a delta T across the heat pipe evaporator wall to the
+% radiator of about 3 deg K. So T_evap ~= 303K if T_rad = 300 which is what
+% our I/O model used.
+%  This entail buidling a resistance network of
+% the evaporator section, the condensor section, and any bonding resistance
+% to the shell. If we assume ideal bonding of the integrated saddle/HP, we
+% can assume R bonding goes to zero. 
+%
+% The conductance values of the evaporator and condensor of the ammonia
+% heat pipes are pulled from the graphs in source THE doc
 
-N_pipes = 5;
-Q_transport = 306;              % W; selected total transport requirement
-Q_pipe = Q_transport/N_pipes;   % Equal sharing assumption
+N_loops = 5;                                    % # of heat pipes
+Q_transport = min(Q_cooling_available);         % W; selected heat transport requirement
+DeltaT_allow = 3;                               % K, design selection 
 
-D_outer = linspace(4,20,100)*1e-3; % m; exploratory diameter range
-L_total = 1.10;                   % m
-L_cond = 0.60;                    % m; assumed attached condenser length
+Q_pipe = Q_transport / N_loops;
 
-% Pipe-to-saddle bond
-f_wrap = 0.5;          % Half circumference
-t_bond_pipe = 0.2e-3;  % m; illustrative
-k_bond_pipe = 1;       % W/(m K); illustrative
+pipe_diameters = [9.5; 12.7; 15.9]; %mm
+Cprime_e = [120; 160; 200]; % W/mK Evaporator Conductance 
+Cprime_c = [157; 214; 276]; % W/mK Condensor Conductance
+pipe_lengths = linspace(0,1,101); % m
+evap_length = 0.25*ones(1,101);%m about 12.5 cm
+condensor_length = pipe_lengths-evap_length; % m
 
-A_pipe_saddle = f_wrap*pi.*D_outer*L_cond;
-R_pipe_saddle = t_bond_pipe ./ ...
-               (k_bond_pipe .* A_pipe_saddle);
+T_rad = 300; % Deg K which gives a drop of 5 deg from aveage skin temp 307k
 
-% Saddle-to-shell bond
-% Assumed saddle width scales with diameter for this sweep
-b_saddle = 2*D_outer;
+% Calculate resistances including of the evaporator, condensor, and the
+% bonds
+R_evaporator = 1 ./ (Cprime_e .* evap_length); % Thermal resistance of the evaporator of the heat pipe
+R_condensor = 1 ./ (Cprime_c .* condensor_length); % Thermal resistance of the condensor portion of HP
 
-t_bond_shell = 0.2e-3; % m; illustrative
-k_bond_shell = 1;      % W/(m K); illustrative
+% Resistance of the adhesive bond (if selected)
+% Integral pipe/flange, initially neglecting metal spreading resistance
+b_contact = 20e-3;      % m; actual flat bonded width
+L_contact = pipe_lengths;     % m
+t_bond = 0.2e-3;       % m; thickness of adhesive
+k_bond = 1;            % W/(m K); illustrative
 
-A_saddle_shell = b_saddle*L_cond;
-R_saddle_shell = t_bond_shell ./ ...
-                (k_bond_shell .* A_saddle_shell);
+A_contact = b_contact .* condensor_length;
+R_attachment = t_bond ./ (k_bond .* A_contact);
+R_bonds = [R_attachment; R_attachment; R_attachment];
 
-% Bond layers only: excludes heat-pipe internal resistance,
-% saddle conduction, tube wall and radiator spreading resistance
-R_bonds = R_pipe_saddle + R_saddle_shell;
-DeltaT_bonds = Q_pipe .* R_bonds;
+Delta_T_sizing_options = Q_pipe.*(R_evaporator + R_condensor + R_bonds);
+Delta_T_sizing_options_ideal = Q_pipe*(R_evaporator + R_condensor);
 
-figure
-plot(D_outer*1000, DeltaT_bonds, 'LineWidth', 1.5);
-xlabel('Heat-pipe outside diameter [mm]');
-ylabel('Temperature drop across both bond layers [K]');
-title('Condenser attachment sensitivity at 61.2 W per pipe');
+% Plot the results assuming an adhesive bond (Adds resistance to the
+% network)
+figure()
+hold on
+plot(condensor_length,Delta_T_sizing_options(1,:))
+plot(condensor_length,Delta_T_sizing_options(2,:))
+plot(condensor_length,Delta_T_sizing_options(3,:))
+title('Heat-pipe temperature-drop sizing - Adhesive Bonding')
+xlabel("Condensor Length [m]")
+ylabel('Evaporator-wall to radiator temperature drop [K]')
+legend('9.5 mm Diameter','12.7 mm Diameter','15.9 mm Diameter')
+ylim([0 7])
+xlim([0 .8])
 grid on
+hold off
+
+% Plot the results assuming an ideal bond
+
+figure()
+hold on
+plot(condensor_length,Delta_T_sizing_options_ideal(1,:))
+plot(condensor_length,Delta_T_sizing_options_ideal(2,:))
+plot(condensor_length,Delta_T_sizing_options_ideal(3,:))
+title('Heat-pipe temperature-drop sizing - Ideally bonded')
+xlabel("Condensor Length [m]")
+ylabel('Evaporator-wall to radiator temperature drop [K]')
+legend('9.5 mm Diameter','12.7 mm Diameter','15.9 mm Diameter')
+ylim([0 7])
+xlim([0 .8])
+grid on
+hold off
+
+%% Condesing Heat Exchanger (Water/Air - RH)
+
+%% Freezable Heat Exchanger (Nitrogen/Water - Thermal)
+% Assumptions
+% T_LCG = 307K ~ Skin temp
+% We want
+% Q_HEX must match the Q_tranport which is the effective max load of
+% cooling available given environmental conditions
+% We also want the delta T across the HEX to be about 2 deg K
+rho_water = 1000; %g/cm^3
+Q_Hex = Q_transport;
+T_LCG = 307;
+
+cp_water = 4180;              % J/(kg K)
+Q_CHE = 80;                    % W; assumed heat added to water
+
+T_w_in = T_LCG; % Assumed/Designed for
+T_evap_surface = 303; % Assumed/Design parameter
+
+mdot_HEX = linspace(5/3600,90/3600,384); % kg/s
+T_w_out = T_w_in - Q_Hex./(mdot_HEX.*cp_water);
+
+% Log Mean Temperature Difference through HEX
+DT_in = T_w_in - T_evap_surface;
+DT_out = T_w_out - T_evap_surface;
+
+% Filter out values that are negative
+feasible = DT_out > 0;
+Del_T_lm = nan(size(mdot_HEX));
+Del_T_lm(feasible) = ...
+    (DT_in - DT_out(feasible)) ./ ...
+    log(DT_in ./ DT_out(feasible));
+
+R_we_allowable = Del_T_lm/Q_Hex; % K/W
 
 
-% Condesing Heat Exchanger (Water/Air - RH)
+N_water = linspace(1,48*8,384);                % Number of water channels
+D_water = 0.001;                            % m Assumed 1 mm hole
+L_water = 0.25;                             % m
+k_water = 0.62;                             % W/(m K), at 34degC
+k_Cu = 400;                                 % W/(m K)
+mu_water = 0.80e-3;                         % dynamic viscosity Pa*s = kg/(m*s), water at approximately 30°C
 
-% Freezable Heat Exchanger (Nitrogen/Water - Thermal)
+% Check Reynolds number of each pipe to determine flow characteristics
+mdot_each = mdot_HEX./N_water;              % mdot of each channel
+A_flow_each = pi*D_water^2/4;               % Area of each pipe
+v_each = mdot_each/(rho_water*A_flow_each); % velocity of each pipe
+Re = rho_water*v_each*D_water/mu_water;     % Reynolds # of each pipe
+
+% Calc thermal resistance of force convection pipes
+Nu = 3.66;                                  % fully developed laminar approximation
+h_water = Nu*k_water/D_water;               % heat transfer coefficient for convection through the water pipes
+
+A_wetted = N_water.*pi.*D_water.*L_water;      % Contact Area of the pipe in the HEX 
+R_conv = 1./(h_water*A_wetted);              % Convective Resistance in the HEX
+
+% Thickness of copper for modeling resistance
+t_eff = [1; 3; 5; 10]*1e-3;  % m            % These are sensitivity cases, not dimensions validated from the sketch.
+% Retain the previous area assumption for this sensitivity study.
+% Actual effective conduction area is geometry-dependent.
+A_eff = A_wetted;             % row vector across channel counts
+
+R_Cu = t_eff./(k_Cu.*A_eff);
+% Other Resistances not modeled. 
+% Heat Pipe Contact Resistance
+% Copper spreading resistance
+
+for i=1:length(t_eff)
+
+    R_total = R_conv + R_Cu(i,:);
+    U_A = 1./R_total;             % rows = thickness cases
+    
+    %U_A = 1./R_conv;                             % overallHeat Tran Coefficient
+    
+    % First flow rate giving T_w_out > T_evap_surface
+    idx_flow = find(feasible, 1, 'first');
+    
+    if isempty(idx_flow)
+        error('No flow rate in the sweep is physically feasible.');
+    end
+    
+    
+    mdot_min = mdot_HEX(idx_flow);
+    U_A_min = Q_Hex/Del_T_lm(idx_flow);
+    
+    fprintf('First feasible sampled flow: %.2f kg/h\n', mdot_min*3600);
+    fprintf('Required UA at that flow: %.2f W/K\n', U_A_min);
+    
+   idx_channels_min = find(U_A >= U_A_min, 1, 'first');
+
+    N_water_min = NaN;
+    if ~isempty(idx_channels_min)
+        N_water_min = ceil(N_water(idx_channels_min));
+    end
+    fprintf('Minimum: %.2f 1mm diameter channels \n', N_water_min)
+    
+    
+    U_A_design_min = Q_Hex/Del_T_lm(end);
+    
+    idx = find(U_A >= U_A_design_min, 1, 'first');
+    
+    if isempty(idx)
+        error('No channel count meets the required UA.');
+    else
+        N_water_design = ceil(N_water(idx));
+    end
+    
+    
+    figure()
+    plot(N_water,U_A,"linewidth",2)
+    title(sprintf('HEX Conductance — Effective Copper Thickness: %.0f mm', ...
+    t_eff(i)*1000))
+    xlabel("Number of 1mm diameter water channels")
+    ylabel('Overall Thermal Conductance, UA [W/K]')
+    if isfinite(N_water_min)
+    xline(N_water_min, '--y', ...
+        sprintf('Minimum-flow case: %d channels', N_water_min), ...
+        'LabelOrientation', 'horizontal', ...
+        'LabelVerticalAlignment', 'bottom');
+    end
+    xline(N_water_design, '--c', ...
+    sprintf('%.1f kg/h design: %d channels', ...
+        mdot_HEX(end)*3600, N_water_design), ...
+    'LabelOrientation', 'horizontal', ...
+    'LabelVerticalAlignment', 'top');
+    grid on
+
+end
+
+fprintf('Hex Design Mass Flow Rate: %.2f kg/h\n', mdot_HEX(end)*3600);
+fprintf('Hex exit water temperature: %.2f kg/h\n', T_w_out(end));
+fprintf('Hex exit water temperature: %.2f kg/h\n', T_w_out(end));
 
 
-% Pipe Flow (Convective losses in the PLSS)
 
-% Pumps (Account for frictional and heating effects from the pump)
 
-% Valves (Minimal
+% Design consideration:
+% We want to optimize the HEX to have a 4 deg Temp drop to ensure that the
+% radiator can stay as hot as possible which increases efficiency.
+% Therefore we need to increase the number of water channels to reduce the
+% resistance of the convection through the HEX.  
+
+
+
+
+
+% Ignoring CHE for now
+
+% mdot_total = 90/3600;          % kg/s; example TOTAL HEX flow
+% f_CHE = 0.20;                  % illustrative flow fraction, not selected sizing
+% 
+% mdot_CHE = f_CHE * mdot_total;
+% mdot_LCG = (1 - f_CHE) * mdot_total;
+% 
+% % Supply these temperatures from your model:
+% T_HEXw_out = T_LCG - Q_Hex/(mdot_total *cp_water); %cold water leaving HEX [K]
+% T_LCG_out = 307; %warm water leaving LCG [K]
+% 
+% T_CHE_out = T_HEX_out + Q_CHE/(mdot_CHE*cp_water);
+% 
+% T_HEX_in = ...
+%     (mdot_LCG*T_LCG_out + mdot_CHE*T_CHE_out)/mdot_total;
+% 
+% Q_HEX = mdot_total*cp_water*(T_HEX_in - T_HEX_out);
+
+
+%% Pipe Flow (Convective losses in the PLSS)
+
+%% Pumps (Account for frictional and heating effects from the pump)
+
+%% Valves (Minimal)
+
+%% Air Warmer
 
 %% Part three: Heat Rejection [Zach Alles]
 % The results from the previous section will be used at inputs fro this
