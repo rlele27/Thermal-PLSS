@@ -47,11 +47,10 @@ Nominal_MetabolicRate_W = Nominal.MetabolicRate_Btu_hr / 3.412141633;
 Mapped_MetabolicRate_W = Nominal.MetMan_Mapped_Metabolic_rate_kJ_hr / 3.6;
 
 %% Constants
-FOS = 1.1;
 G_Earth = 1;
 G_Mars = 0.38;
 v_walking = 1; %walking speed (m/s)
-M_dot_base = 100; %sedentary metabolic rate (W)
+M_dot_base = 367 / 3.6; % BVAD Rev2 Table 3-26: 95th-percentile sleep-rate proxy (W).
 M_dot_activity_earth = Mapped_MetabolicRate_W - M_dot_base; %differential above M_dot_base (W)
 
 %% Martian Metabolic Rate Conversion
@@ -59,12 +58,11 @@ C_w_E = 3.531 - 3.374 * v_walking + 1.535 * v_walking^2 + 0.557 * G_Earth;
 C_w_M = 3.531 - 3.374 * v_walking + 1.535 * v_walking^2 + 0.557 * G_Mars;
 K_g = C_w_M / C_w_E;    
 M_dot_mars = M_dot_base + K_g * M_dot_activity_earth;
-M_dot_mars = M_dot_mars * FOS;
 
 %% Oxygen Consumption on Mars
 % Approximate conversion calibrated to Metabolic.xlsx O2 consumption data.
 % 0.0042 g/min/W converts metabolic power (W) to O2 demand (g/min).
-% Mars metabolic power already includes the factor of safety.
+% Mars metabolic power is used directly.
 O2_per_W = 0.0042; % (g/min)/W
 O2_mars_g_min = M_dot_mars * O2_per_W;
 
@@ -79,7 +77,7 @@ Mars_Summary = table(Mars_Duration_hr, Mars_AverageRate_W, ...
     Mars_AverageO2_g_min, Mars_TotalO2_g, ...
     'VariableNames', {'Duration_hr', 'AverageRate_W', ...
     'AverageO2_g_min', 'TotalO2_g'});
-disp('Final Mars-adjusted profile (including FOS):');
+disp('Final Mars-adjusted profile:');
 disp(Mars_Summary);
 fprintf('Average Mars O2 Consumption Rate: %.3f g/min\n', Mars_AverageO2_g_min);
 
@@ -105,7 +103,7 @@ grid on;
 
 figure;
 plot(Nominal_Time_hours, O2_mars_g_min, 'LineWidth', 1.5);
-title('Mars Astronaut O2 Consumption (Including FOS)');
+title('Mars Astronaut O2 Consumption');
 xlabel('Time (hours)');
 ylabel('O2 Consumption (g/min)');
 grid on;

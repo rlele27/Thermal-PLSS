@@ -1,5 +1,5 @@
 function Profile = runJOS3Profile(Time_min, MetabolicRate_W, Body, Environment, Step_s, Precondition_min)
-% Follow piecewise constant Earth metabolic demand with continuous thermal history.
+% Follow supplied piecewise constant metabolic demand with continuous thermal history.
 % Duplicate timestamps mark activity transitions; rates apply until the next knot.
 validateattributes(Time_min, {'numeric'}, {'vector', 'finite', 'real'});
 validateattributes(MetabolicRate_W, {'numeric'}, {'vector', 'finite', 'positive'});
@@ -43,7 +43,9 @@ Names = {'Respiratory_g_min', 'SweatSecreted_g_min', 'SweatEvaporated_g_min', ..
     'VaporToPLSS_g_min', 'Condensation_g_min', 'CondensateEvaporation_g_min', ...
     'CondensateStart_g', 'CondensateEnd_g', 'CondensateLatentHeat_W', ...
     'NeckCondensateStart_g', 'TorsoCondensateStart_g', 'LegCondensateStart_g', ...
-    'NeckCondensateEnd_g', 'TorsoCondensateEnd_g', 'LegCondensateEnd_g'};
+    'NeckCondensateEnd_g', 'TorsoCondensateEnd_g', 'LegCondensateEnd_g', ...
+    'NeckOutlet_C', 'TorsoOutlet_C', 'LegOutlet_C', ...
+    'NeckOutletW', 'TorsoOutletW', 'LegOutletW'};
 Components = zeros(NumberOfSteps, numel(Names));
 Step = 0;
 for Interval = 1:numel(Intervals_s)
@@ -67,7 +69,8 @@ for Interval = 1:numel(Intervals_s)
             Output.ZoneMeanTemperature_C', Output.ZoneMeanRH_percent', ...
             Output.VaporToPLSS_g_s * 60, Output.Condensation_g_s * 60, Output.CondensateEvaporation_g_s * 60, ...
             sum(Output.CondensateStart_g), sum(Output.CondensateEnd_g), Output.CondensateLatentHeat_W, ...
-            Output.CondensateStart_g', Output.CondensateEnd_g'];
+            Output.CondensateStart_g', Output.CondensateEnd_g', ...
+            Output.ZoneOutletTemperature_C', Output.ZoneOutletHumidityRatio'];
         Elapsed_s = Elapsed_s + Duration_s;
     end
 end
@@ -107,6 +110,11 @@ if ~isfield(Environment, 'Ventilation')
     Output.GasWaterResidual_g_min = 0;
     Output.ZoneMeanTemperature_C = repmat(mean(Environment.AirTemperature_C(:)), 3, 1);
     Output.ZoneMeanRH_percent = repmat(mean(Environment.RelativeHumidity_percent(:)), 3, 1);
+    Output.ZoneOutletTemperature_C = Output.ZoneMeanTemperature_C;
+    SupplyPv_kPa = exp(16.6536 - 4030.183 ./ (Output.ZoneMeanTemperature_C + 235)) ...
+        .* Output.ZoneMeanRH_percent / 100;
+    Output.ZoneOutletHumidityRatio = (0.01801528 / 0.0319988) * SupplyPv_kPa ...
+        ./ (Environment.Pressure_kPa - SupplyPv_kPa);
     return;
 end
 Supply_C = Environment.AirTemperature_C;
@@ -117,7 +125,9 @@ SupplyPressure_Pa = exp(16.6536 - 4030.183 / (Supply_C + 235)) * SupplyRH_percen
 DryFlow_kg_s = (Environment.Pressure_kPa * 1000 - SupplyPressure_Pa) * Flow_m3_s / (259.84 * (Supply_C + 273.15));
 VaporFlow_kg_s = SupplyPressure_Pa * Flow_m3_s / (461.52 * (Supply_C + 273.15));
 assert(DryFlow_kg_s > 0, 'JOS3:SupplyPressure', 'Supply vapor pressure must be below total pressure.');
-SupplyHumidityRatio = VaporFlow_kg_s / DryFlow_kg_s;
+% Use the same molecular-mass ratio as the RH sizing/export psychrometrics.
+SupplyHumidityRatio = (0.01801528 / 0.0319988) * SupplyPressure_Pa ...
+    / (Environment.Pressure_kPa * 1000 - SupplyPressure_Pa);
 HeatCapacityRate_W_K = DryFlow_kg_s * 918 + VaporFlow_kg_s * 1860;
 
 % Series approximation: fresh supply at head/neck, then torso/arms, then leg return.
@@ -193,6 +203,8 @@ for Iteration = 1:300
         Output.VaporToPLSS_g_s = Output.VaporToSuit_g_s - sum(PhaseRate_kg_s) * 1000;
         Model.ZoneOutletTemperature_C = Outlet_C;
         Model.ZoneOutletHumidityRatio = OutletHumidityRatio;
+        Output.ZoneOutletTemperature_C = Outlet_C;
+        Output.ZoneOutletHumidityRatio = OutletHumidityRatio;
         Output.CondenserInletTemperature_C = Outlet_C(3);
         Output.CondenserInletRH_percent = min(100, OutletRH_percent(3));
         Output.ZoneMeanTemperature_C = Mean_C;

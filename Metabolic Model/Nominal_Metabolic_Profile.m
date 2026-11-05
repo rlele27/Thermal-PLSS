@@ -12,17 +12,11 @@ close all;
     % Althausen et al., AIAA 2006-1337, printed p. 4: use listed dimensions.
     % POCO HTC datasheet: 70 W/m/K in plane; a different porous graphite grade.
     % https://poco.entegris.com/content/dam/poco/resources/reference-materials/data-sheets/datasheet-htc-graphite-10231.pdf
-    % ASSUMPTION: both top and bottom fin roots are cooled to SurfaceTemperature_C.
+    % ASSUMPTION: both roots share a controlled temperature, no colder than SurfaceTemperature_C.
     % The half-height fin has an insulated symmetry plane; wetted fins can warm.
     % Straight parallel channels; gas properties use inlet conditions.
     % Fully developed laminar transfer gives a baseline without entry enhancement.
     % Cooling hardware must maintain both root temperatures; no fixed overall U is used.
-% Porous Material References
-    % Hasan et al., NASA/TM-2006-214130, printed pp. 4-5.
-    % https://ntrs.nasa.gov/api/citations/20060021945/downloads/20060021945.pdf
-    % Use reported bubble points as differential limits; verify with the selected wetted parts.
-% Separator and Drain
-    % Primed, water-wet ceramic separator is assumed; no oxygen-compatibility qualification is implied.
 % RH Inventory at Fixed Airflow
     % Equal free-volume allocation to neck, torso and legs; fixed JOS-3 temperatures/sources.
     % Humidity changes do not rerun sweating, evaporation, air heating or wall condensation.
@@ -34,20 +28,27 @@ close all;
     % Average zone temperature and humidity ratio over area and EVA time.
 
 %% Constants - Metabolic Scaling
-FOS = 1.1;
 G_Earth = 1;
 G_Mars = 0.38;
 v_walking = 1; % Walking speed (m/s).
-M_dot_base = 100; % Sedentary metabolic rate (W).
+Suit.LightFactor = 1.1;
+Suit.ManualFactor = 1.1;
+Suit.WalkingFactor = 1.1;
+% BVAD Rev. 2 (2022), Table 3-26: 95th-percentile sleep and awake rates.
+RestingMetabolicRate_W = 367 / 3.6; % 95th-percentile sleep-rate proxy.
+NominalMetabolicRate_W = 580 / 3.6; % Nominal awake reference for LCG cooling.
+validateattributes(RestingMetabolicRate_W, {'numeric'}, {'scalar', 'real', 'finite', 'positive'});
+validateattributes(NominalMetabolicRate_W, {'numeric'}, {'scalar', 'real', 'finite', '>', RestingMetabolicRate_W});
 
 %% Metabolic Model - Inputs
-% Astronaut
-Body.Height_m = 1.75;
-Body.Weight_kg = 82;
-Body.Fat_percent = 15;
-Body.Age_years = 30;
+% Astronaut: BVAD Rev2 (2022), pp.48,50; 95th-percentile high-fitness male.
+% METMAN exercise lookup assumes VO2max = 55 mL/kg/min (Rev1 p.49).
+Body.Height_m = 1.84;
+Body.Weight_kg = 100;
+Body.Fat_percent = 15; % Retained JOS-3 assumption; percentile value not specified.
+Body.Age_years = 30; % Retained scenario assumption; percentile value not specified.
 Body.Sex = "male";
-Body.CardiacIndex_L_min_m2 = 2.59;
+Body.CardiacIndex_L_min_m2 = 2.59; % Retained JOS-3 assumption; not a percentile datum.
 
 % Suit Conditions
 BodyMicroclimate.AirTemperature_C = 18;
@@ -63,7 +64,7 @@ BodyMicroclimate.Posture = "standing";
 BodyMicroclimate.LCG.Enabled = true;
 BodyMicroclimate.LCG.InletTemperature_C = 18.3;
 BodyMicroclimate.LCG.ActivityCoolingFraction = 1; % Assumed fraction of activity heat removed.
-BodyMicroclimate.LCG.BaselineMetabolism_W = M_dot_base;
+BodyMicroclimate.LCG.BaselineMetabolism_W = NominalMetabolicRate_W;
 
 % Ventilation
 Ventilation.Flow_CFM = 6; 
@@ -73,10 +74,11 @@ BodyMicroclimate.Ventilation = Ventilation;
 BodyMicroclimate.TrackRetainedSweat = true; % Later evaporation retained; runoff excluded.
 JOS3_Step_s = 30;
 JOS3_Precondition_min = 60; % Excluded from EVA duration.
+OffNominalAerobicDuration_min = 120; % Continuous aerobic activity at EVA end.
 
 %% RH Sizing - Inputs
 % Condenser Geometry and Material
-Condenser.SurfaceTemperature_C = 1; % ASSUMED operating point, not a literature requirement.
+Condenser.SurfaceTemperature_C = 1; % Minimum fin-root temperature; control may warm the roots.
 Condenser.ChannelGap_m = 0.08 * 0.0254;
 Condenser.FinThickness_m = 0.07 * 0.0254;
 Condenser.ChannelHeight_m = 0.7 * 0.0254;
@@ -84,84 +86,70 @@ Condenser.ChannelLength_m = 1.72 * 0.0254;
 Condenser.FinConductivity_W_mK = 70; % ASSUMED porous-graphite proxy, not measured PG-45.
 Condenser.FinNodes = 12; % Conduction intervals over half the fin height.
 
-% Porous Material
-Separator.AveragePoreSize_m = 6.7e-5 * 0.0254; % Reported average; NOT a maximum diameter.
-Separator.HydraulicConductivity_m_s = 7.56e-7 / 100; % Reported cm/s converted to m/s.
-Separator.ReferenceBubblePressure_Pa = 14.7 * 6894.757; % Approximate reported ceramic entry pressure.
-Substrate.AveragePoreSize_m = 0.0023 * 0.0254; % PG-45 graphite average
-Substrate.ReferenceBubblePressure_Pa = 0.6 * 6894.757; % Measured PG-45 entry pressure, Fig. 7.
-MaterialReferenceTemperature_C = 20; % ASSUMED: paper does not specify test-water temperature.
-
-% Separator and Drain
-Separator.Thickness_m = 0.001; % ASSUMED equivalent flat-layer thickness; tube wall not specified.
-Separator.PermeabilityRetention = 0.50; % ASSUMED fouling allowance; not measured aging data.
-Separator.SuctionPressure_Pa = 8000; % ASSUMED low-pressure design; paper tests used 3.5-7 psi at ambient pressure.
-Separator.BubblePressureFOS = 2; % ASSUMED engineering margin on the reported bubble point.
-Separator.MinimumLiquidPressure_kPa = 10; % ASSUMED degassing margin; vapor pressure is also checked.
-Drain.PressureAllowance_Pa = 500; % ASSUMED routing/gravity allowance; no routing geometry is modeled.
-Water_Load_FOS = 1.0; % Additional RH margin; metabolic FOS is already included.
 
 % RH Inventory at Fixed Airflow
 EVA_Sizing.FreeGasVolume_L = 1.5 * 28.316846592; % NASA EMU range: 1.5-2.0 ft3; editable analogue.
-EVA_Sizing.MaximumSuitRH_percent = 100; % Saturation ceiling only; the former 65% comfort limit is disabled.
-EVA_Sizing.InitialSuitRH_percent = 50; % ASSUMED starting RH; no active humidification.
+EVA_Sizing.MaximumSuitRH_percent = 100; % Reporting threshold only; not a sizing constraint.
+EVA_Sizing.UseTransferCache = true; % Reuse identical wet-fin responses across sensitivity cases.
+EVA_Sizing.EquilibriumCondensation = true; % Isothermal phase equilibrium at prescribed JOS-3 temperatures.
+EVA_Sizing.InitialRegionalLiquid_g = [0, 0, 0]; % Additional local liquid, separate from JOS-3 condensate.
+EVA_Sizing.InitialSuitRH_percent = 50; % ASSUMED starting RH
 EVA_Sizing.Verbose = false;
-EVA_Sizing.CapacityFraction = 0.99; % Finite-area approximation to the air carrying limit.
-EVA_Sizing.MaximumStep_s = 1; % Explicit gas-inventory integration; reduced further for stability.
+
+% Weighted search: 1 favours small size; 0 favours warmer allowed root floors.
+EVA_Sizing.SizeWeight = 0.5;
+EVA_Sizing.ChannelBounds = [1, 200]; % Inclusive whole-channel search bounds.
+% Buck saturation equation: upper root-floor bound follows the supply dew point.
+SupplyDewPoint_C = fzero(@(T) saturationPressure(T) ...
+    - BodyMicroclimate.RelativeHumidity_percent / 100 ...
+    * saturationPressure(BodyMicroclimate.AirTemperature_C), ...
+    [-80, BodyMicroclimate.AirTemperature_C]);
+EVA_Sizing.RootDewPointReduction_fraction = 0.25; % Applied to dew-point value in deg C.
+EVA_Sizing.RootTemperatureBounds_C = [1, ...
+    (1 - EVA_Sizing.RootDewPointReduction_fraction) * SupplyDewPoint_C]; % Editable lower bound.
+EVA_Sizing.AutoRootUpperDewPoint = true; % Recompute for each sensitivity target.
+EVA_Sizing.RootTemperatureStep_C = 2; % Grid resolution; not continuous optimisation.
+EVA_Sizing.RHTolerance_percent = 1; % Absolute RH percentage points at final supply.
+EVA_Sizing.TemperatureTolerance_C = 0.5; % Final supply temperature tolerance.
+EVA_Sizing.ControlTemperaturePoints = 8; % Root-temperature response points; ideal control without lag.
+EVA_Sizing.InternalStep_s = 1; % Fixed RH inventory and condenser-control timestep (s).
 
 %% Hardware Sizing - Inputs
 % Package and Material
-PackingFactor = 0.65; % ASSUMED component envelopes / internal package volume.
-CoolingMargin = 1.20; % ASSUMED allowance for rounding, heat leaks and control.
 GraphiteDensity_kg_m3 = 1500; % ASSUMED PG-45 bulk density; confirm selected material.
 AluminiumDensity_kg_m3 = 2700; % NASA 6061 material reference; see sources file.
 PorousBaseThickness_m = 0.001; % ASSUMED top/bottom porous bases; no separate casing.
-HeaderLength_m = 0.010; % ASSUMED allowance at each end, not extra transfer length.
+CondenserRoutingDepth_m = 0.010; % ASSUMED rectangular allowance below fins for separate water-removal and cooling-fluid routes.
+% Routing hardware material and mass are unselected; this allowance adds volume only.
 
-% Cold Heat Exchanger and Refrigeration
-% R134a-type vapor-compression analogue, not an oxygen-side refrigerant selection.
-EvaporatorApproach_K = 3; % ASSUMED refrigerant below the 1 C wetted surface.
-ColdPlateHeatFlux_W_m2 = 5000; % ASSUMED derated footprint flux, not a boiling correlation.
-ColdPlateThickness_m = 0.004; % ASSUMED machined/bonded cold plate.
-ColdPlateMetalFraction = 0.60; % ASSUMED remaining metal after refrigerant channels.
-% Hot Heat Exchanger - Water Leaving the LCG
-Loop.LCGOutletTemperature_C = 25; % ASSUMED placeholder; NOT LCG inlet temperature.
-Loop.Flow_L_min = 1.8; % Reference LCG flow: NASA 20080029248; change for your loop.
-Loop.MaximumRise_K = 2; % ASSUMED permitted RH-induced water temperature rise.
-Loop.CondensingApproach_K = 5; % ASSUMED hot refrigerant above heated loop water.
-Loop.HeaderPressureDrop_Pa = 2000; % ASSUMED hot-HX header/routing allowance.
-% Approximate water properties near 25 C, distinct from 1 C collected condensate.
-Loop.Density_kg_m3 = 997;
-Loop.Cp_J_kgK = 4180;
-Loop.Viscosity_Pa_s = 0.00089;
-Loop.Conductivity_W_mK = 0.60;
-HotHX.Gap_m = 0.001; % ASSUMED parallel water channels.
-HotHX.ChannelWidth_m = 0.010;
-HotHX.Wall_m = 0.001;
-HotHX.FinThickness_m = 0.0005;
-HotHX.TargetVelocity_m_s = 0.3; % ASSUMED channel-count design target.
-HotHX.RefrigerantFilm_W_m2K = 2000; % ASSUMED condensing-side coefficient; sensitivity needed.
-HotHX.MetalConductivity_W_mK = 167; % Aluminium 6061 reference.
-% Keep refrigeration inside its published map, rather than extrapolating COP.
-RefrigerantCondensing_C = max((100 - 32) / 1.8, ...
-    Loop.LCGOutletTemperature_C + Loop.MaximumRise_K + Loop.CondensingApproach_K);
-Loop.Flow_m3_s = Loop.Flow_L_min / 60000;
-Loop.HeatCapacity_W_K = Loop.Flow_m3_s * Loop.Density_kg_m3 * Loop.Cp_J_kgK;
-CompressorMass_kg = 0.590; % Aspen A-series 1.4 cc reference, Jan. 2026.
-CompressorEnvelope_m = [0.060, 0.060, 0.080]; % ASSUMED box incl. ports, not drawing dimensions.
-% Pump Requirements and Storage
-% No pump hardware, mass, envelope or electrical allowance is selected.
-% Duty fraction assumes buffered liquid and pumping at the required rated flow.
-PumpFlowMargin = 2; % ASSUMED required capability / mean collected liquid flow.
-DrainLoss_Pa = 2000; % ASSUMED downstream liquid line/valve loss.
+% Air Warmer - NASA PLSS 2.0 Counterflow Plate-Fin Package Estimate
+% Quinn et al. (2013), Table 3 test 10; see RH_Component_Sizing_Sources.md.
+AirWarmer.WaterInlet_C = 20;
+AirWarmer.WaterFlow_kg_h = 15; % Fixed water mass flow; return temperature follows heat balance.
+AirWarmer.MinimumWaterReturn_C = BodyMicroclimate.LCG.InletTemperature_C;
+AirWarmer.ReferenceEffectiveness = 0.95;
+AirWarmer.ReferenceGasPressure_Pa = 4.1 * 6894.757293;
+AirWarmer.ReferenceGasTemperature_K = (91 - 32) / 1.8 + 273.15;
+AirWarmer.ReferenceGasFlow_m3_s = 6 * 0.028316846592 / 60;
+AirWarmer.ReferenceGasCp_J_kgK = 1006; % Air approximation at NASA test 10.
+AirWarmer.ReferenceGasConstant_J_kgK = 287.05;
+AirWarmer.ReferenceWaterFlow_kg_s = 196 * 0.45359237 / 3600;
+AirWarmer.ReferenceWaterCp_J_kgK = 4180;
+% Report axes as flow length, stack width, channel height; envelope aspect assumed.
+AirWarmer.ReferenceDimensions_m = [6.87, 3.2, 1.78] * 0.0254;
+AirWarmer.ReferenceDryMass_kg = 2.0 * 0.45359237; % Core + headers, excluding fittings.
+AirWarmer.ConductanceMargin = 1.0; % Editable multiplier; no extra margin by default.
+
+% Minimum package estimate uses the maximum required UA over the design EVA.
+% NASA reference package includes headers; fittings and external routing are excluded.
+
+% Liquid Storage
 StorageFillFraction = 0.90; % ASSUMED useful liquid volume / internal tank volume.
 ExternalPressure_kPa = 0.6; % ASSUMED Mars ambient; set suit pressure for internal installation.
 TankMinimumWall_m = 0.0005; % ASSUMED manufacturing/handling minimum.
 TankAllowableStress_Pa = 50e6; % ASSUMED derated aluminium allowable, not a code rating.
 TankJointEfficiency = 0.8; % ASSUMED.
 TankFittingsMass_kg = 0.05; % ASSUMED ports, bladder and supports.
-BlowerEfficiency = 0.30; % ASSUMED electrical-to-gas efficiency.
-GasPressureDropFactor = 3; % ASSUMED headers/entry allowance over straight-channel friction.
 
 %% Metabolic Model - Data Import
 Data_Folder = fileparts(mfilename('fullpath'));
@@ -174,6 +162,11 @@ opts.VariableNames = {'StartTime_hr', 'EndTime_hr', 'Duration_hr', 'Activity', '
 opts.VariableTypes = {'double', 'double', 'double', 'string', 'double'};
 opts.SelectedVariableNames = {'StartTime_hr', 'EndTime_hr', 'Activity', 'MetabolicRate_kJ_hr'};
 MetMan = readtable(fullfile(Data_Folder, 'Metabolic.xlsx'), opts);
+% Prevent a stale reference-crewmember workbook from silently changing this case.
+assert(all(MetMan.MetabolicRate_kJ_hr(MetMan.Activity == "Nominal") == NominalMetabolicRate_W * 3.6) ...
+    && all(MetMan.MetabolicRate_kJ_hr(MetMan.Activity == "Exercise - Aerobic") == 5197) ...
+    && all(MetMan.MetabolicRate_kJ_hr(MetMan.Activity == "Exercise - Resistance") == 1452), ...
+    'MetabolicProfile:CrewMismatch', 'METMAN lookup must use the BVAD 95th-percentile case.');
 
 filename = fullfile(Data_Folder, 'Raw_Nominal.csv');
 opts = detectImportOptions(filename, 'ReadVariableNames', true);
@@ -188,30 +181,71 @@ Nominal_Duration_hr = diff(Nominal_Time_hours);
 Nominal_MetabolicRate_W = Nominal.MetabolicRate_Btu_hr / 3.412141633;
 Mapped_MetabolicRate_W = mapMetabolicRates(Nominal.Activity, MetMan) / 3.6;
 
-% Martian Metabolic Rate Conversion
-M_dot_activity_earth = Mapped_MetabolicRate_W - M_dot_base;
+% Task-Based Mars/Suit Conversion
+% Aerobic exercise is an assumed walking/traverse proxy, not a measured EVA task.
+% Manual/light work receives no walking-derived gravity reduction.
+Activity = lower(strtrim(string(Nominal.Activity)));
+LightTask = Activity == "nominal";
+ManualTask = Activity == "above nominal" | Activity == "exercise - resistance";
+WalkingTask = Activity == "exercise - aerobic";
+assert(all(LightTask | ManualTask | WalkingTask), ...
+    'MetabolicProfile:UnmappedTask', 'Add a task class for every activity label.');
+validateattributes([Suit.LightFactor, Suit.ManualFactor, Suit.WalkingFactor], ...
+    {'numeric'}, {'vector', 'numel', 3, 'real', 'finite', '>=', 1});
+
+GravityFactor = ones(size(Activity));
+SuitFactor = ones(size(Activity));
+TaskClass = strings(size(Activity));
+SuitFactor(LightTask) = Suit.LightFactor;
+SuitFactor(ManualTask) = Suit.ManualFactor;
+SuitFactor(WalkingTask) = Suit.WalkingFactor;
+TaskClass(LightTask) = "Light";
+TaskClass(ManualTask) = "Manual";
+TaskClass(WalkingTask) = "Walking";
 C_w_E = 3.531 - 3.374 * v_walking + 1.535 * v_walking^2 + 0.557 * G_Earth;
 C_w_M = 3.531 - 3.374 * v_walking + 1.535 * v_walking^2 + 0.557 * G_Mars;
 K_g = C_w_M / C_w_E;
-M_dot_mars = (M_dot_base + K_g * M_dot_activity_earth) * FOS;
+GravityFactor(WalkingTask) = K_g;
+ActivityRate_W = max(Mapped_MetabolicRate_W - RestingMetabolicRate_W, 0);
+PhysicalMetabolicRate_W = RestingMetabolicRate_W + SuitFactor .* GravityFactor .* ActivityRate_W;
+Metabolic_Task_Mapping = table(Nominal.Time_min, Nominal.Activity, TaskClass, ...
+    GravityFactor, SuitFactor, Mapped_MetabolicRate_W, ...
+    PhysicalMetabolicRate_W, ...
+    'VariableNames', {'Time_min', 'Activity', 'TaskClass', 'GravityFactor', ...
+    'SuitFactor', 'EarthMetabolicRate_W', 'PhysicalMetabolicRate_W'});
 
-% Astronaut Source and Ideal PLSS Sink
-Moisture_Profile = runJOS3Profile(Nominal.Time_min, Mapped_MetabolicRate_W, ...
+% Separate physiological runs: retain nominal history, replace the final two hours.
+Nominal_Moisture_Profile = runJOS3Profile(Nominal.Time_min, PhysicalMetabolicRate_W, ...
     Body, BodyMicroclimate, JOS3_Step_s, JOS3_Precondition_min);
-Moisture_Rate_g_min = Moisture_Profile.VaporToPLSS_g_min; % Net vapor reaching the PLSS after phase change.
-SizingMoisture_Rate_g_min = Moisture_Rate_g_min * FOS;
+AerobicEarthRate_W = mapMetabolicRates("Exercise - Aerobic", MetMan) / 3.6;
+AerobicMarsRate_W = RestingMetabolicRate_W + Suit.WalkingFactor * K_g ...
+    * max(AerobicEarthRate_W - RestingMetabolicRate_W, 0);
+OffNominal = makeOffNominalEVA(Nominal.Time_min, Nominal.Activity, ...
+    PhysicalMetabolicRate_W, OffNominalAerobicDuration_min, AerobicMarsRate_W);
+OffNominal_Moisture_Profile = runJOS3Profile(OffNominal.Time_min, OffNominal.MetabolicRate_W, ...
+    Body, BodyMicroclimate, JOS3_Step_s, JOS3_Precondition_min);
+% Hardware uses the complete off-nominal case, including its own temperatures.
+Moisture_Profile = OffNominal_Moisture_Profile;
+Moisture_Rate_g_min = Moisture_Profile.VaporToPLSS_g_min;
+SizingMoisture_Rate_g_min = Moisture_Rate_g_min;
 Moisture_Duration_min = Moisture_Profile.EndTime_min - Moisture_Profile.StartTime_min;
 EVA_Duration_min = sum(Moisture_Duration_min);
 
-% Time-Weighted Averages and Peaks
-Mars_Duration_hr = sum(Nominal_Duration_hr);
-Mars_AverageRate_W = sum(M_dot_mars(1:end-1) .* Nominal_Duration_hr) / Mars_Duration_hr;
-Active_Intervals = find(Nominal_Duration_hr > 0);
-Mars_PeakRate_W = max(M_dot_mars(Active_Intervals));
-AverageMoisture_g_min = sum(SizingMoisture_Rate_g_min .* Moisture_Duration_min) / EVA_Duration_min;
-PeakMoisture_g_min = max(SizingMoisture_Rate_g_min);
-AverageSourceMoisture_g_min = sum(Moisture_Profile.VaporToSuit_g_min .* Moisture_Duration_min) / EVA_Duration_min * FOS;
-PeakSourceMoisture_g_min = max(Moisture_Profile.VaporToSuit_g_min) * FOS;
+% Duration-weighted scenario statistics; duplicate transition knots have no weight.
+NominalActive = find(Nominal_Duration_hr > 0);
+NominalMean_W = sum(PhysicalMetabolicRate_W(1:end-1) .* Nominal_Duration_hr) / sum(Nominal_Duration_hr);
+NominalStats_W = [min(PhysicalMetabolicRate_W(NominalActive)); NominalMean_W; ...
+    max(PhysicalMetabolicRate_W(NominalActive))];
+OffDuration_hr = diff(OffNominal.Time_min) / 60;
+OffActive = find(OffDuration_hr > 0);
+OffMean_W = sum(OffNominal.MetabolicRate_W(1:end-1) .* OffDuration_hr) / sum(OffDuration_hr);
+OffNominalStats_W = [min(OffNominal.MetabolicRate_W(OffActive)); OffMean_W; ...
+    max(OffNominal.MetabolicRate_W(OffActive))];
+Mars_Duration_hr = EVA_Duration_min / 60;
+AverageMoisture_g_min = sum(Moisture_Rate_g_min .* Moisture_Duration_min) / EVA_Duration_min;
+PeakMoisture_g_min = max(Moisture_Rate_g_min);
+AverageSourceMoisture_g_min = sum(Moisture_Profile.VaporToSuit_g_min .* Moisture_Duration_min) / EVA_Duration_min;
+PeakSourceMoisture_g_min = max(Moisture_Profile.VaporToSuit_g_min);
 
 % Condenser Inlet Temperature
 CondenserInlet_C = Moisture_Profile.CondenserInletTemperature_C; % Physical return conditions use unscaled heat and moisture.
@@ -225,7 +259,7 @@ DryOxygenFlow_kg_s = (BodyMicroclimate.Pressure_kPa * 1000 - SupplyVaporPressure
     * Ventilation.Flow_CFM * 0.028316846592 / 60 / (259.84 * (BodyMicroclimate.AirTemperature_C + 273.15));
 SupplyHumidityRatio = (0.01801528 / 0.0319988) * SupplyVaporPressure_Pa ...
     / (BodyMicroclimate.Pressure_kPa * 1000 - SupplyVaporPressure_Pa);
-ReturnHumidityRatio = SupplyHumidityRatio + AverageMoisture_g_min / FOS / 60000 / DryOxygenFlow_kg_s;
+ReturnHumidityRatio = SupplyHumidityRatio + AverageMoisture_g_min / 60000 / DryOxygenFlow_kg_s;
 ReturnVaporPressure_Pa = BodyMicroclimate.Pressure_kPa * 1000 * ReturnHumidityRatio ...
     / (0.01801528 / 0.0319988 + ReturnHumidityRatio);
 % Buck saturation equation matches the RH sizing functions below.
@@ -273,57 +307,51 @@ SuitInlet = [0; 0; BodyMicroclimate.AirTemperature_C; ...
     BodyMicroclimate.RelativeHumidity_percent; Ventilation.Flow_CFM; BodyMicroclimate.Pressure_kPa];
 Summary = table(Quantity, Overall, SuitInlet, SuitOutlet);
 
-% EVA Summary
-Quantity = ["EVA duration (hr)"; "Average metabolic rate (W)"; ...
-    "Peak metabolic rate (W)"; "Final retained condensate (g)"];
-Value = [Mars_Duration_hr; Mars_AverageRate_W; Mars_PeakRate_W; Moisture_Profile.CondensateEnd_g(end)];
-EVA_Summary = table(Quantity, Value);
+% EVA Summary: nominal versus the separately simulated off-nominal case, watts only.
+% BVAD Rev. 2 (Feb 2022), Table 4-71, printed p. 136: Apollo Lunar Surface EVA.
+% Historical suited lunar benchmarks, not matched Mars tasks or acceptance limits.
+Statistic = ["Minimum"; "Average"; "Maximum"];
+Nominal_W = NominalStats_W;
+OffNominal_W = OffNominalStats_W;
+BVAD_Lunar_kJ_hr = [517; 1030; 2607];
+BVAD_Lunar_W = BVAD_Lunar_kJ_hr / 3.6;
+EVA_Summary = table(Statistic, Nominal_W, OffNominal_W, BVAD_Lunar_W);
 
 % PLSS Humidity Loads
 Component = ["Respiratory"; "Evaporated fresh sweat"; "Skin diffusion"; ...
     "Evaporated retained sweat"; "Total vapor"];
 ComponentRates_g_min = [Moisture_Profile.Respiratory_g_min, Moisture_Profile.SweatEvaporated_g_min, ...
     Moisture_Profile.SkinDiffusion_g_min, Moisture_Profile.RetainedEvaporation_g_min, ...
-    Moisture_Profile.VaporToSuit_g_min] * FOS;
+    Moisture_Profile.VaporToSuit_g_min];
 Total_g = sum(ComponentRates_g_min .* Moisture_Duration_min, 1)';
 Average_g_min = Total_g / EVA_Duration_min;
 Peak_g_min = max(ComponentRates_g_min, [], 1)';
 Moisture_Summary = table(Component, Average_g_min, Peak_g_min, Total_g);
 
 % Display Metabolic Results
-disp('Overall, suit inlet and outlet summary (overall air: body-area and time weighted):');
-disp(Summary);
-
-disp('EVA summary:');
+displaySection('METABOLIC MODEL | EVA SUMMARY');
+fprintf('EVA duration: %.2f hr | Final JOS-3 retained condensate: %.3f g\n', ...
+    Mars_Duration_hr, Moisture_Profile.CondensateEnd_g(end));
+fprintf('Off-nominal: final %.2f hr aerobic; hardware sized for this case.\n', OffNominalAerobicDuration_min / 60);
+fprintf('BVAD = Apollo lunar EVA, Table 4-71 (p. 136).\n\n');
 disp(EVA_Summary);
 
-disp('Astronaut vapor sources:');
+displaySection('METABOLIC MODEL | OFF-NOMINAL MOISTURE SOURCES');
 disp(Moisture_Summary);
+
+displaySection('METABOLIC MODEL | OFF-NOMINAL SUIT AIR CONDITIONS');
+disp(Summary);
 
 %% Metabolic Model - EVA Air-State Profile
 % Full EVA Air-State Profile
-    % Preserve interval-average loads and coincident air states; no Mars adjustment.
-    % Reconstruct regional outlet states from the JOS-3 inlet/outlet arithmetic means.
+    % Preserve physical Mars/suit interval loads and coincident air states; no extra scaling.
+    % Export solved JOS-3 outlets directly: clipped mean RH is not invertible.
 ProfilePressure_Pa = repmat(BodyMicroclimate.Pressure_kPa * 1000, height(Moisture_Profile), 1);
 ProfileSupplyW = repmat(SupplyHumidityRatio, height(Moisture_Profile), 1);
 ProfileSupplyT_C = repmat(BodyMicroclimate.AirTemperature_C, height(Moisture_Profile), 1);
-ProfileMeanPressure_Pa = exp(16.6536 - 4030.183 ./ (ZoneTemperatures_C + 235)) ...
-    .* ZoneRH_percent / 100 * 1000;
-ProfileMeanW = (0.01801528 / 0.0319988) * ProfileMeanPressure_Pa ...
-    ./ (ProfilePressure_Pa - ProfileMeanPressure_Pa);
-ProfileOutletT_C = zeros(height(Moisture_Profile), 3);
-ProfileOutletW = zeros(height(Moisture_Profile), 3);
-for Zone = 1:3
-    if Zone == 1
-        NodeInletT_C = ProfileSupplyT_C;
-        NodeInletW = ProfileSupplyW;
-    else
-        NodeInletT_C = ProfileOutletT_C(:, Zone - 1);
-        NodeInletW = ProfileOutletW(:, Zone - 1);
-    end
-    ProfileOutletT_C(:, Zone) = 2 * ZoneTemperatures_C(:, Zone) - NodeInletT_C;
-    ProfileOutletW(:, Zone) = 2 * ProfileMeanW(:, Zone) - NodeInletW;
-end
+ProfileOutletT_C = Moisture_Profile{:, {'NeckOutlet_C', 'TorsoOutlet_C', 'LegOutlet_C'}};
+ProfileOutletW = Moisture_Profile{:, {'NeckOutletW', 'TorsoOutletW', 'LegOutletW'}};
+ProfileMeanW = ([ProfileSupplyW, ProfileOutletW(:, 1:2)] + ProfileOutletW) / 2;
 assert(max(abs(ProfileOutletT_C(:, 3) - CondenserInlet_C)) < 1e-5, ...
     'RH:ProfileExport', 'Regional outlet reconstruction does not match JOS-3.');
 EVA_Profile = table(Moisture_Profile.StartTime_min, Moisture_Profile.EndTime_min, ...
@@ -342,8 +370,10 @@ EVA_Profile = [EVA_Profile, array2table(ZoneTemperatures_C, ...
 Moisture_Plot_Time_hr = [Moisture_Profile.StartTime_min; Moisture_Profile.EndTime_min(end)] / 60;
 MetMan_Time_hours = [MetMan.StartTime_hr; MetMan.EndTime_hr(end)];
 MetMan_MetabolicRate_W = [MetMan.MetabolicRate_kJ_hr; MetMan.MetabolicRate_kJ_hr(end)] / 3.6;
+
+% Source Profiles
 figure(1);
-set(gcf, 'Name', '1. Metabolic Source Profiles', 'NumberTitle', 'off');
+set(gcf, 'Name', '1. Metabolic Sources', 'NumberTitle', 'off');
 stairs(MetMan_Time_hours, MetMan_MetabolicRate_W);
 hold on;
 plot(Nominal_Time_hours, Nominal_MetabolicRate_W);
@@ -353,34 +383,47 @@ xlabel('Time (hours)');
 ylabel('Metabolic Rate (W)');
 grid on;
 
+% Nominal Mars EVA
 figure(2);
-set(gcf, 'Name', '2. EVA Metabolism and Suit Outlet', 'NumberTitle', 'off');
+set(gcf, 'Name', '2. Nominal Mars EVA', 'NumberTitle', 'off');
 tiledlayout(3, 1);
+sgtitle('Nominal Mars EVA: 95th-percentile male', 'FontSize', 16, 'FontWeight', 'bold');
 nexttile;
-plot(Nominal_Time_hours, M_dot_mars);
+stairs(Nominal_Time_hours, PhysicalMetabolicRate_W);
 title('Mapped Mars Metabolic Profile');
 xlabel('Time (hours)');
 ylabel('Metabolic Rate (W)');
 grid on;
-
 nexttile;
-stairs(Moisture_Plot_Time_hr, [SizingMoisture_Rate_g_min; SizingMoisture_Rate_g_min(end)]);
+stairs([Nominal_Moisture_Profile.StartTime_min; Nominal_Moisture_Profile.EndTime_min(end)] / 60, ...
+    [Nominal_Moisture_Profile.VaporToPLSS_g_min; Nominal_Moisture_Profile.VaporToPLSS_g_min(end)]);
 title('Suit Outlet Moisture Rate');
 xlabel('Time (hours)');
 ylabel('Vapor rate (g/min)');
 grid on;
 nexttile;
-stairs(Moisture_Plot_Time_hr, [CondenserInlet_C; CondenserInlet_C(end)]);
+stairs([Nominal_Moisture_Profile.StartTime_min; Nominal_Moisture_Profile.EndTime_min(end)] / 60, ...
+    [Nominal_Moisture_Profile.CondenserInletTemperature_C; Nominal_Moisture_Profile.CondenserInletTemperature_C(end)]);
 title('Suit Outlet Air Temperature');
 xlabel('Time (hours)');
 ylabel('Air temperature (C)');
 grid on;
 
-% Astronaut Vapor Sources
+% Nominal Astronaut Vapor Sources
+NominalPlotTime_hr = [Nominal_Moisture_Profile.StartTime_min; Nominal_Moisture_Profile.EndTime_min(end)] / 60;
+NominalComponentRates_g_min = Nominal_Moisture_Profile{:, ...
+    {'Respiratory_g_min', 'SweatEvaporated_g_min', 'SkinDiffusion_g_min', ...
+    'RetainedEvaporation_g_min', 'VaporToSuit_g_min'}};
+NominalZoneTemperatures_C = Nominal_Moisture_Profile{:, ...
+    {'NeckAirTemperature_C', 'TorsoAirTemperature_C', 'LegAirTemperature_C'}};
 figure(3);
-set(gcf, 'Name', '3. Astronaut Moisture Sources', 'NumberTitle', 'off');
-stairs(Moisture_Plot_Time_hr, [ComponentRates_g_min; ComponentRates_g_min(end, :)]);
-title('Astronaut Vapor Sources');
+set(gcf, 'Name', '3. Astronaut Moisture', 'NumberTitle', 'off');
+VaporLines = stairs(NominalPlotTime_hr, ...
+    [NominalComponentRates_g_min; NominalComponentRates_g_min(end, :)], ...
+    'LineStyle', '--', 'LineWidth', 1.1);
+% Distinguish the solid green total from the thinner dashed components.
+set(VaporLines(end), 'Color', [0, 0.6, 0], 'LineStyle', '-', 'LineWidth', 2.8);
+title('Nominal EVA Astronaut Vapor Sources');
 legend('Respiration', 'Fresh sweat evaporation', 'Skin diffusion', 'Retained sweat evaporation', 'Total astronaut vapor');
 xlabel('Time (hours)');
 ylabel('Vapor Rate (g/min)');
@@ -388,13 +431,292 @@ grid on;
 
 % Regional Air Temperature
 figure(4);
-set(gcf, 'Name', '4. Suit Air Temperature History', 'NumberTitle', 'off');
-stairs(Moisture_Plot_Time_hr, [ZoneTemperatures_C; ZoneTemperatures_C(end, :)]);
-legend('Head/neck zone mean', 'Torso/arms zone mean', 'Leg zone mean', 'Location', 'best');
+set(gcf, 'Name', '4. Suit Air Temperature', 'NumberTitle', 'off');
+stairs(NominalPlotTime_hr, [NominalZoneTemperatures_C; NominalZoneTemperatures_C(end, :)]);
+legend('Head/neck', 'Torso/arms', 'Legs', 'Location', 'best');
 xlabel('Time (hours)');
 ylabel('Air-region temperature (C)');
-title('Suit Air Temperature by Region');
+title('Nominal EVA Mean Suit Air Temperature by Region');
 grid on;
+
+%% Off-Nominal EVA - Separate Comparison Graph
+figure(5); clf;
+set(gcf, 'Name', '5. Off-Nominal EVA Comparison', 'NumberTitle', 'off');
+tiledlayout(3, 1);
+nexttile;
+stairs(Nominal.Time_min / 60, PhysicalMetabolicRate_W, 'LineWidth', 1.2); hold on;
+stairs(OffNominal.Time_min / 60, OffNominal.MetabolicRate_W, '--', 'LineWidth', 1.5);
+ylabel('Metabolism (W)'); title('Metabolic Activity');
+legend('Nominal', 'Off-nominal', 'Location', 'best');
+xline((OffNominal.Time_min(end) - OffNominalAerobicDuration_min) / 60, ':', 'Aerobic start', 'HandleVisibility', 'off'); grid on;
+nexttile;
+plot(Nominal_Moisture_Profile.EndTime_min / 60, Nominal_Moisture_Profile.VaporToPLSS_g_min, 'LineWidth', 1.2); hold on;
+plot(Moisture_Profile.EndTime_min / 60, Moisture_Rate_g_min, '--', 'LineWidth', 1.5);
+ylabel('Net vapor (g/min)'); title('Moisture Delivered to PLSS');
+xline((OffNominal.Time_min(end) - OffNominalAerobicDuration_min) / 60, ':', 'HandleVisibility', 'off'); grid on;
+nexttile;
+plot(Nominal_Moisture_Profile.EndTime_min / 60, Nominal_Moisture_Profile.CondenserInletTemperature_C, 'LineWidth', 1.2); hold on;
+plot(Moisture_Profile.EndTime_min / 60, CondenserInlet_C, '--', 'LineWidth', 1.5);
+ylabel('Air temperature (C)'); xlabel('EVA time (hours)'); title('Suit Outlet Temperature');
+xline((OffNominal.Time_min(end) - OffNominalAerobicDuration_min) / 60, ':', 'HandleVisibility', 'off'); grid on;
+sgtitle('Off-Nominal EVA: Final Two Hours of Continuous Aerobic Activity');
+
+%% RH Sizing - Calculations
+% Metabolic Results Used by RH Sizing
+    % Direct values replace the former spreadsheet transfer. No extra feedback is added.
+Gas.SuitTemperature_C = AverageCondenserInlet_C;
+Gas.SuitRH_percent = RH_Sizing_InletRH_percent;
+Gas.Flow_CFM = RH_Sizing_Flow_CFM; % Actual condenser-inlet flow, not supply CFM.
+Gas.Pressure_kPa = BodyMicroclimate.Pressure_kPa;
+
+% Water Properties for Heat Transfer and Storage
+    % Conservative liquid properties use the minimum allowed wetted-surface temperature.
+    % IAPWS liquid-water density and heat capacity.
+Water = liquidWaterProperties(Condenser.SurfaceTemperature_C);
+Water.VaporCp_J_kgK = 1860; % Ideal-vapor cp approximation over this low-temperature range.
+Water.VaporEnthalpyAtZero_J_kg = 2500900; % Psychrometric enthalpy reference, J/kg.
+Water.VaporGasConstant_J_kgK = 461.51805;
+% Input Validation - RH Sizing
+validateattributes(AverageMoisture_g_min, {'numeric'}, {'scalar', 'finite', 'positive'});
+validateattributes(Gas.SuitRH_percent, {'numeric'}, {'scalar', 'finite', '>', 0, '<=', 100});
+validateattributes(Gas.SuitTemperature_C, {'numeric'}, {'scalar', 'finite', '>', 0});
+validateattributes(Condenser.SurfaceTemperature_C, {'numeric'}, {'scalar', 'finite', '>', 0});
+assert(Condenser.SurfaceTemperature_C < Gas.SuitTemperature_C, ...
+    'RH:Temperature', 'Condenser surface must be colder than suit air.');
+Positive = [EVA_Duration_min, Gas.Pressure_kPa, Gas.Flow_CFM, ...
+    Condenser.ChannelGap_m, Condenser.ChannelHeight_m, Condenser.ChannelLength_m, Condenser.FinThickness_m, ...
+    Condenser.FinConductivity_W_mK, EVA_Sizing.FreeGasVolume_L, ...
+    Water.Density_kg_m3, Water.Cp_J_kgK];
+assert(all(isfinite(Positive) & Positive > 0), 'RH:Inputs', 'Inputs must be positive and finite.');
+% Source Load and Oxygen Properties
+Water.DesignRate_kg_s = AverageMoisture_g_min / 60000;
+RequiredRemoval_g_min = Water.DesignRate_kg_s * 60000;
+Gas = condenserGasProperties(Gas, Water, Condenser);
+
+%% RH Sizing - Weighted Full-EVA Outlet Control
+% A separate function keeps the time-history sizing out of the plotting sections.
+EVA_Sizing.Duration_min = EVA_Duration_min;
+EVA_Sizing.SupplyRH_percent = BodyMicroclimate.RelativeHumidity_percent; % Supply RH control target after reheating.
+GasPropertiesFunction = @condenserGasProperties;
+WarmerSizingFunction = @(History, Channels) sizeAirWarmer(AirWarmer, History, ...
+    EVA_Profile, Water.VaporCp_J_kgK);
+EVA_Design = sizeEVARH(EVA_Profile, Gas, Water, Condenser, ...
+    EVA_Sizing, GasPropertiesFunction, WarmerSizingFunction);
+if ~EVA_Design.Feasible
+    plotSizingSearch(EVA_Design, EVA_Sizing.SizeWeight);
+    % Invalidate stale hardware snapshots when no current design is accepted.
+    Component_Input_File = fullfile(Data_Folder, 'RH_Component_Inputs.xlsx');
+    writecell({'Selected outlet-control design valid', false; 'Reason', char(EVA_Design.Failure)}, ...
+        Component_Input_File, 'Sheet', 'Design Status', 'WriteMode', 'overwritesheet');
+    writetable(EVA_Design.SearchResults, Component_Input_File, 'Sheet', 'Sizing Search', 'WriteMode', 'overwritesheet');
+    writetable(EVA_Design.LoadDiagnostics, Component_Input_File, 'Sheet', 'Load Diagnostics', 'WriteMode', 'overwritesheet');
+    error('RH:NoFeasibleDesign', '%s', EVA_Design.Failure);
+end
+% Propagate the selected root floor to sensitivities, properties and hardware.
+Condenser.SurfaceTemperature_C = EVA_Design.RootFloor_C;
+SelectedWaterProperties = liquidWaterProperties(Condenser.SurfaceTemperature_C);
+Water.Cp_J_kgK = SelectedWaterProperties.Cp_J_kgK;
+Water.Density_kg_m3 = SelectedWaterProperties.Density_kg_m3;
+Gas = condenserGasProperties(Gas, Water, Condenser);
+Selected = condenserArea(Condenser.SurfaceTemperature_C, Gas, Water, Condenser);
+%% RH Sizing - Results
+SelectedSummary = EVA_Design.SelectedSummary;
+SelectedLabels = ["Core size: L x W x H (mm)"; "Transfer area (m2)"; "Core volume (L)"; ...
+    "Average removal (g/min)"; "Peak removal (g/min)"; ...
+    "Saturated removal capacity (g/min)"; "Collected water (g)"; ...
+    "Suit RH: EVA average (%)"; "Suit RH: highest interval average (%)"; ...
+    "Supply RH target missed (min)"; "Maximum supply RH error (percentage points)"; ...
+    "Maximum supply temperature error (C)"; "Selected root-temperature floor (C)"; "Maximum regional/suit RH (%)"; ...
+    "Regional/return RH above 100% (min)"; "Final additional regional liquid (g)"; ...
+    "Peak stored regional liquid (g)"; "Total regional condensation (g)"; ...
+    "Total regional re-evaporation (g)"; "Average regional phase heat rejection (W)"; "Maximum pre-equilibrium regional RH (%)"];
+SelectedValues = [SelectedSummary.InstalledArea_m2'; SelectedSummary.CoreVolume_L'; ...
+    SelectedSummary.AverageRemoval_g_min'; SelectedSummary.PeakRemoval_g_min'; ...
+    SelectedSummary.MaximumSaturatedCapacity_g_min'; SelectedSummary.CollectedWater_g'; ...
+    SelectedSummary.AverageSuitRH_percent'; SelectedSummary.PeakIntervalAverageSuitRH_percent'; ...
+    SelectedSummary.SupplyTargetMiss_min'; SelectedSummary.MaximumRHError_percent'; ...
+    SelectedSummary.MaximumTemperatureError_C'; SelectedSummary.RootFloor_C'; ...
+    SelectedSummary.MaximumSuitRH_percent'; SelectedSummary.RegionalSupersaturation_min'; ...
+    SelectedSummary.FinalRegionalLiquid_g'; SelectedSummary.MaximumStoredRegionalLiquid_g'; ...
+    SelectedSummary.TotalRegionalCondensation_g'; SelectedSummary.TotalRegionalReevaporation_g'; ...
+    SelectedSummary.AveragePhaseHeatSink_W'; SelectedSummary.MaximumPreEquilibriumRH_percent'];
+SelectedValues = [compose('%.1f x %.1f x %.1f', SelectedSummary.CoreLength_mm, ...
+    SelectedSummary.CoreWidth_mm, SelectedSummary.CoreHeight_mm)'; compose('%.3f', SelectedValues)];
+
+
+%% Air Warmer - Results
+% Sensible heat demand only; no moisture addition or feedback into JOS-3.
+AirWarmer_Summary = table(SelectedSummary.Case, SelectedSummary.AverageCondenserOutlet_C, ...
+    SelectedSummary.AverageCondenserOutletRH_percent, SelectedSummary.ReheatedTemperature_C, ...
+    SelectedSummary.AverageReheatedRH_percent, SelectedSummary.PeakReheatedRH_percent, ...
+    SelectedSummary.AverageReheat_W, SelectedSummary.PeakReheat_W, ...
+    SelectedSummary.AverageReheat_W * EVA_Duration_min / 60, ...
+    'VariableNames', {'Case', 'AverageInlet_C', 'AverageInletRH_percent', ...
+    'AverageOutlet_C', 'AverageOutletRH_percent', 'PeakOutletRH_percent', ...
+    'AverageHeating_W', 'PeakHeating_W', 'EVA_Heat_Wh'});
+WarmerLabels = ["Inlet temperature: EVA average (C)"; "Inlet RH: EVA average (%)"; ...
+    "Outlet temperature: EVA average (C)"; "Outlet RH: EVA average (%)"; ...
+    "Average heating (W thermal)"; "Peak heating (W thermal)"; "EVA heating energy (Wh thermal)"];
+WarmerValues = table2array(AirWarmer_Summary(:, [2:5, 7:9]))';
+
+
+%% Air Warmer - Core Calculations
+% Air Warmer Core - Sized over the Selected Full-EVA Heating Profile
+AirWarmer_Design = EVA_Design.AirWarmer; % Sized and screened during candidate selection.
+WarmerLabels = ["NASA-scaled package: L x W x H (mm)"; "Required conductance UA (W/K)"; ...
+    "Package volume excluding fittings (L)"; "Dry package mass excluding fittings (kg)"; WarmerLabels];
+WarmerValues = [compose('%.1f x %.1f x %.1f', AirWarmer_Design.Dimensions_m(1) * 1000, ...
+    AirWarmer_Design.Dimensions_m(2) * 1000, AirWarmer_Design.Dimensions_m(3) * 1000); ...
+    compose('%.3f', [AirWarmer_Design.UA_W_K; AirWarmer_Design.Volume_m3 * 1000; ...
+    AirWarmer_Design.DryMass_kg]); compose('%.3f', WarmerValues)];
+
+%% Hardware Sizing - Input Requirements and Snapshot
+% Save a design snapshot; component calculations below use Component_Inputs directly.
+% Use the selected outlet-control case for all downstream component requirements.
+ComponentDesign = EVA_Design.SelectedSummary(1, :);
+ComponentDesignValid = EVA_Design.Feasible;
+Parameter = ["WaterRate_g_min"; "EVA_Duration_min"; "SurfaceTemperature_C"; ...
+    "CoolingDuty_W"; "CondenserArea_m2"; "ChannelCount"; "ChannelGap_m"; ...
+    "FinThickness_m"; "ChannelHeight_m"; "ChannelLength_m"; "GasPressure_kPa"; ...
+    "WaterDensity_kg_m3"; "AverageCoolingDuty_W"; "TotalCollectedWater_kg"; "AverageMoisture_g_min"];
+Label = ["Peak condensed-water rate"; "EVA duration"; "Minimum allowed fin-root temperature"; ...
+    "Peak heat removal, no cooling allowance"; "Installed wetted condenser area"; ...
+    "Installed channel count"; "Clear gas gap"; "Fin thickness"; "Clear channel height"; ...
+    "Channel length"; "Absolute gas pressure"; "Water density for storage"; ...
+    "Time-weighted heat removal"; "Integrated EVA collected water"; "Time-weighted moisture removal"];
+Value = [ComponentDesign.PeakRemoval_g_min; EVA_Duration_min; Condenser.SurfaceTemperature_C; ...
+    ComponentDesign.PeakCooling_W; ComponentDesign.InstalledArea_m2; ComponentDesign.Channels; ...
+    Condenser.ChannelGap_m; Condenser.FinThickness_m; Condenser.ChannelHeight_m; ...
+    Condenser.ChannelLength_m; Gas.Pressure_kPa; Water.Density_kg_m3; ...
+    ComponentDesign.AverageCooling_W; ComponentDesign.CollectedWater_g / 1000; ComponentDesign.AverageRemoval_g_min];
+Unit = ["g/min"; "min"; "deg C"; "W thermal"; "m2"; "count"; "m"; "m"; "m"; "m"; ...
+    "kPa absolute"; "kg/m3"; "W thermal"; "kg"; "g/min"];
+Component_Inputs = table(Parameter, Label, Value, Unit);
+Component_Input_File = fullfile(fileparts(mfilename('fullpath')), 'RH_Component_Inputs.xlsx');
+% Preserve other workbook sheets; clear only the obsolete sweep results.
+if isfile(Component_Input_File) && any(strcmp(sheetnames(Component_Input_File), 'Airflow Search'))
+    writecell({'Status', 'Airflow sweep removed; the model now uses the fixed supply airflow.'}, ...
+        Component_Input_File, 'Sheet', 'Airflow Search', 'WriteMode', 'overwritesheet');
+end
+writecell({'Selected outlet-control design valid', ComponentDesignValid; ...
+    'Reason', char(ComponentDesign.Note); ...
+    'Outlet targets met', EVA_Design.Feasible}, ...
+    Component_Input_File, 'Sheet', 'Design Status', 'WriteMode', 'overwritesheet');
+writetable(EVA_Design.TimeHistory, Component_Input_File, 'Sheet', 'EVA Requirements', ...
+    'WriteMode', 'overwritesheet', 'AutoFitWidth', true);
+writetable(EVA_Design.SelectedSummary, Component_Input_File, 'Sheet', 'EVA Comparison', ...
+    'WriteMode', 'overwritesheet', 'AutoFitWidth', true);
+writetable(EVA_Design.LoadDiagnostics, Component_Input_File, 'Sheet', 'Load Diagnostics', ...
+    'WriteMode', 'overwritesheet', 'AutoFitWidth', true);
+writetable(EVA_Design.SearchResults, Component_Input_File, 'Sheet', 'Sizing Search', ...
+    'WriteMode', 'overwritesheet', 'AutoFitWidth', true);
+writetable(Component_Inputs, Component_Input_File, 'Sheet', 'Component Inputs', ...
+    'WriteMode', 'overwritesheet', 'AutoFitWidth', true);
+writecell({'Source', 'Nominal_Metabolic_Profile.m: weighted outlet-control condenser design'; ...
+    'Updated UTC', char(datetime('now', 'TimeZone', 'UTC')); ...
+    'Refresh', 'Rerun Nominal_Metabolic_Profile.m; component sizing is included.'}, ...
+    Component_Input_File, 'Sheet', 'Component Inputs', 'Range', 'A24', 'AutoFitWidth', false);
+
+%% Hardware Sizing - Calculations
+% Use the in-memory selected outlet-control requirements; no workbook read is needed.
+assert(all(isfinite(Component_Inputs.Value) & Component_Inputs.Value > 0), ...
+    'RH:ComponentInputs', 'Component requirements must be positive and finite.');
+for Row = 1:height(Component_Inputs)
+    RH.(Component_Inputs.Parameter(Row)) = Component_Inputs.Value(Row);
+end
+assert(RH.ChannelCount == round(RH.ChannelCount), 'RH:Channels', 'Channel count must be an integer.');
+
+% Assumption Checks
+assert(StorageFillFraction > 0 && StorageFillFraction < 1 ...
+    && TankJointEfficiency > 0 && TankJointEfficiency <= 1, ...
+    'RH:Assumptions', 'Check tank fill and joint efficiency.');
+assert(isfinite(CondenserRoutingDepth_m) && CondenserRoutingDepth_m >= 0 ...
+    && ExternalPressure_kPa < RH.GasPressure_kPa, ...
+    'RH:Geometry', 'Check routing depth and tank external pressure.');
+
+% RH Condenser - Integrated Porous Fins and Separator
+CoreWidth_m = RH.ChannelCount * RH.ChannelGap_m ...
+    + (RH.ChannelCount + 1) * RH.FinThickness_m;
+CoreHeight_m = RH.ChannelHeight_m + 2 * PorousBaseThickness_m;
+CoreLength_m = RH.ChannelLength_m;
+FinVolume_m3 = (RH.ChannelCount + 1) * RH.FinThickness_m ...
+    * RH.ChannelHeight_m * CoreLength_m;
+BaseVolume_m3 = 2 * CoreWidth_m * CoreLength_m * PorousBaseThickness_m;
+CondenserRoutingVolume_m3 = CoreLength_m * CoreWidth_m * CondenserRoutingDepth_m;
+CondenserEnvelope_m = [CoreLength_m, CoreWidth_m, CoreHeight_m + CondenserRoutingDepth_m];
+CondenserMass_kg = (FinVolume_m3 + BaseVolume_m3) * GraphiteDensity_kg_m3;
+% ASSUMPTION: separation is integrated within this substrate envelope/mass.
+% Detailed embedded separator construction and gas/liquid manifolds are not sized.
+
+% Collected-Water Storage
+WaterStored_kg = RH.TotalCollectedWater_kg;
+TankInternalVolume_m3 = WaterStored_kg / RH.WaterDensity_kg_m3 / StorageFillFraction;
+TankRadius_m = (3 * TankInternalVolume_m3 / (4 * pi))^(1/3);
+TankPressure_Pa = (RH.GasPressure_kPa - ExternalPressure_kPa) * 1000;
+TankWall_m = max(TankMinimumWall_m, TankPressure_Pa * TankRadius_m ...
+    / (2 * TankAllowableStress_Pa * TankJointEfficiency));
+TankOuterRadius_m = TankRadius_m + TankWall_m;
+TankEnvelope_m = 2 * TankOuterRadius_m * [1, 1, 1];
+TankMass_kg = 4 * pi / 3 * (TankOuterRadius_m^3 - TankRadius_m^3) ...
+    * AluminiumDensity_kg_m3 + TankFittingsMass_kg;
+
+%% Hardware Sizing - Results
+Component = ["RH condenser"; "Air warmer"; "Liquid storage tank"];
+Dimensions_m = [CondenserEnvelope_m; AirWarmer_Design.Dimensions_m; TankEnvelope_m];
+Length_mm = Dimensions_m(:, 1) * 1000;
+Width_mm = Dimensions_m(:, 2) * 1000;
+Height_mm = Dimensions_m(:, 3) * 1000;
+ComponentVolume_L = [prod(CondenserEnvelope_m); AirWarmer_Design.Volume_m3; ...
+    4 * pi / 3 * TankOuterRadius_m^3] * 1000;
+DryMass_kg = [CondenserMass_kg; AirWarmer_Design.DryMass_kg; TankMass_kg];
+StoredWater_kg = [0; 0; WaterStored_kg];
+Component_Summary = table(Component, Length_mm, Width_mm, Height_mm, ...
+    ComponentVolume_L, DryMass_kg, StoredWater_kg);
+
+
+% Cooling requirement, independent of the mechanism selected to provide it.
+Condenser_Requirements = table(SelectedSummary.Case, SelectedSummary.AverageCooling_W, ...
+    SelectedSummary.PeakCooling_W, ...
+    SelectedSummary.AverageCooling_W * EVA_Duration_min / 60, ...
+    SelectedSummary.AverageRootTemperature_C, SelectedSummary.MinimumRootTemperature_C, ...
+    SelectedSummary.MaximumRootTemperature_C, ...
+    'VariableNames', {'Case', 'AverageHeatRemoval_W', 'PeakHeatRemoval_W', ...
+    'EVA_HeatRemoval_Wh', 'AverageRoot_C', 'MinimumRoot_C', 'MaximumRoot_C'});
+CoolingLabels = ["Average heat removal (W thermal)"; "Peak heat removal (W thermal)"; ...
+    "EVA heat removal (Wh thermal)"; "Minimum allowed root temperature (C)"; ...
+    "Required root temperature: average (C)"; "Required root temperature: minimum (C)"; ...
+    "Required root temperature: maximum (C)"];
+CoolingValues = [Condenser_Requirements.AverageHeatRemoval_W'; Condenser_Requirements.PeakHeatRemoval_W'; ...
+    Condenser_Requirements.EVA_HeatRemoval_Wh'; Condenser.SurfaceTemperature_C; ...
+    Condenser_Requirements.AverageRoot_C'; Condenser_Requirements.MinimumRoot_C'; ...
+    Condenser_Requirements.MaximumRoot_C'];
+
+
+%% RH and Air Warmer - Ordered Output
+displayComparison('RH CONDENSER | SIZING AND EVA PERFORMANCE', SelectedLabels, SelectedValues);
+displayComparison('RH CONDENSER | COOLING REQUIREMENTS', CoolingLabels, CoolingValues);
+displayComparison('AIR WARMER | SIZING AND EVA PERFORMANCE', WarmerLabels, WarmerValues);
+displaySummary('AIR WARMER | WATER-LOOP REQUIREMENTS', ...
+    ["Water supply temperature"; "Fixed water mass flow"; "Water volume flow"; ...
+    "Minimum allowed water return temperature"; "Predicted minimum water return temperature"], ...
+    [AirWarmer.WaterInlet_C; AirWarmer.WaterFlow_kg_h; AirWarmer_Design.WaterFlow_L_min; ...
+    AirWarmer.MinimumWaterReturn_C; min(AirWarmer_Design.WaterReturn_C)], ...
+    ["C"; "kg/h"; "L/min"; "C"; "C"]);
+
+%% Suit-Air Liquid Storage and Phase Rates
+History = EVA_Design.SelectedHistory{1};
+figure(6); clf;
+set(gcf, 'Name', '6. Suit-Air Condensate', 'NumberTitle', 'off');
+tiledlayout(2, 1);
+nexttile;
+plot(EVA_Design.Time_min, History.RegionLiquidEnd_g, 'LineWidth', 1.2);
+ylabel('Retained liquid (g)'); legend('Head/neck', 'Torso/arms', 'Legs', 'Location', 'best'); grid on;
+nexttile;
+plot(EVA_Design.Time_min, [sum(History.Condensed_kg, 2), sum(History.Reevaporated_kg, 2)] * 1000 ...
+    ./ (EVA_Profile.EndTime_min - EVA_Profile.StartTime_min), 'LineWidth', 1.2);
+ylabel('Phase rate (g/min)'); legend('Condensation', 'Re-evaporation', 'Location', 'best'); grid on;
+xlabel('EVA time (min)');
+sgtitle('Regional Condensate Storage and Phase Rates');
 
 % Temperature and RH along the Airflow Path
 % Regional values are zone means; the last point is the final leg outlet.
@@ -405,9 +727,10 @@ GradientTemperature_C = [BodyMicroclimate.AirTemperature_C, ...
 GradientRH_percent = [BodyMicroclimate.RelativeHumidity_percent, ...
     sum(ZoneRH_percent .* Moisture_Duration_min, 1) / EVA_Duration_min, ...
     sum(Moisture_Profile.CondenserInletRH_percent .* Moisture_Duration_min) / EVA_Duration_min];
-figure(5);
-set(gcf, 'Name', '5. Average Suit Airflow Gradient', 'NumberTitle', 'off');
+figure(7);
+set(gcf, 'Name', '7. Suit Airflow', 'NumberTitle', 'off');
 tiledlayout(2, 1);
+sgtitle('Temperature and RH along Airflow Path in suit', 'FontSize', 16, 'FontWeight', 'bold');
 nexttile;
 plot(1:5, GradientTemperature_C, '-o', 'LineWidth', 1.5);
 xticks(1:5);
@@ -427,423 +750,126 @@ xlabel('JOS-3 Nodes');
 title('Time-Weighted Average RH along the Airflow Path');
 grid on;
 
-%% RH Sizing - Calculations
-% Metabolic Results Used by RH Sizing
-    % Direct values replace the former spreadsheet transfer. No extra feedback is added.
-Gas.SuitTemperature_C = AverageCondenserInlet_C;
-Gas.SuitRH_percent = RH_Sizing_InletRH_percent;
-Gas.Flow_CFM = RH_Sizing_Flow_CFM; % Actual condenser-inlet flow, not supply CFM.
-Gas.Pressure_kPa = BodyMicroclimate.Pressure_kPa;
-
-% Water Properties and Porous Pressure Limits
-    % ASSUMPTION: liquid drains at the selected wetted-surface temperature.
-    % IAPWS liquid-water density, viscosity and cp; IAPWS surface tension.
-Water = liquidWaterProperties(Condenser.SurfaceTemperature_C);
-ReferenceWater = liquidWaterProperties(MaterialReferenceTemperature_C);
-Water.VaporCp_J_kgK = 1860; % Ideal-vapor cp approximation over this low-temperature range.
-Water.VaporEnthalpyAtZero_J_kg = 2500900; % Psychrometric enthalpy reference, J/kg.
-Water.VaporGasConstant_J_kgK = 461.51805;
-% Convert reported hydraulic conductivity to intrinsic permeability, not cold-water K.
-Separator.Permeability_m2 = Separator.HydraulicConductivity_m_s * ReferenceWater.Viscosity_Pa_s ...
-    / (ReferenceWater.Density_kg_m3 * 9.80665);
-% ASSUMPTION: wettability is unchanged; scale reported entry pressures with surface tension.
-SurfaceTensionRatio = Water.SurfaceTension_N_m / ReferenceWater.SurfaceTension_N_m;
-BubblePressure_Pa = Separator.ReferenceBubblePressure_Pa * SurfaceTensionRatio;
-RetentionPressure_Pa = Substrate.ReferenceBubblePressure_Pa * SurfaceTensionRatio;
-
-% Input Validation - RH Sizing
-validateattributes(AverageMoisture_g_min, {'numeric'}, {'scalar', 'finite', 'positive'});
-validateattributes(Water_Load_FOS, {'numeric'}, {'scalar', 'finite', '>=', 1});
-validateattributes(Gas.SuitRH_percent, {'numeric'}, {'scalar', 'finite', '>', 0, '<=', 100});
-validateattributes(Gas.SuitTemperature_C, {'numeric'}, {'scalar', 'finite', '>', 0});
-validateattributes(Condenser.SurfaceTemperature_C, {'numeric'}, {'scalar', 'finite', '>', 0});
-assert(Condenser.SurfaceTemperature_C < Gas.SuitTemperature_C, ...
-    'RH:Temperature', 'Condenser surface must be colder than suit air.');
-Positive = [EVA_Duration_min, Gas.Pressure_kPa, Gas.Flow_CFM, ...
-    Condenser.ChannelGap_m, Condenser.ChannelHeight_m, Condenser.ChannelLength_m, Condenser.FinThickness_m, ...
-    Condenser.FinConductivity_W_mK, EVA_Sizing.FreeGasVolume_L, ...
-    Separator.Thickness_m, Separator.Permeability_m2, Separator.SuctionPressure_Pa, ...
-    Separator.ReferenceBubblePressure_Pa, Separator.MinimumLiquidPressure_kPa, ...
-    Substrate.ReferenceBubblePressure_Pa, Water.Density_kg_m3, Water.Viscosity_Pa_s];
-assert(all(isfinite(Positive) & Positive > 0), 'RH:Inputs', 'Inputs must be positive and finite.');
-assert(Separator.PermeabilityRetention > 0 && Separator.PermeabilityRetention <= 1 && ...
-    Separator.BubblePressureFOS >= 1 && ...
-    isfinite(Drain.PressureAllowance_Pa) && ...
-    Drain.PressureAllowance_Pa >= 0, 'RH:DrainInputs', 'Check drainage assumptions.');
-
-% Source Load and Oxygen Properties
-Water.DesignRate_kg_s = AverageMoisture_g_min * Water_Load_FOS / 60000;
-RequiredRemoval_g_min = Water.DesignRate_kg_s * 60000;
-Gas = condenserGasProperties(Gas, Water, Condenser);
-
-% Average-Load Condenser Area
-Selected = condenserArea(Condenser.SurfaceTemperature_C, Gas, Water, Condenser);
-
-% Continuous Liquid Extraction Area
-SeparatorPressure_Pa = Separator.SuctionPressure_Pa - RetentionPressure_Pa - Drain.PressureAllowance_Pa;
-DrainFeasible = SeparatorPressure_Pa > 0 && ...
-    BubblePressure_Pa / Separator.SuctionPressure_Pa >= Separator.BubblePressureFOS && ...
-    Gas.Pressure_kPa - Separator.SuctionPressure_Pa / 1000 >= Separator.MinimumLiquidPressure_kPa && ...
-    Gas.Pressure_kPa * 1000 - Separator.SuctionPressure_Pa > saturationPressure(Water.Temperature_C);
-%% RH Sizing - Sensitivity Analysis
-% Change one input at a time by +/-10%; recalculate properties and transfer.
-SensitivityInputs = ["Moisture load (g/min)", "Inlet temperature (C)", "Inlet RH (%)"];
-SensitivityBase = [RequiredRemoval_g_min, Gas.SuitTemperature_C, Gas.SuitRH_percent];
-Input = [repelem(SensitivityInputs(:), 2); "Surface temperature (C)"; "Surface temperature (C)"];
-Change_percent = repmat([-10; 10], 3, 1);
-Change = [repmat(["-10%"; "+10%"], 3, 1); "2 C surface"; "5 C surface"];
-InputValue = zeros(8, 1);
-Area_m2 = Inf(8, 1);
-Cooling_W = NaN(8, 1);
-Feasible = false(8, 1);
-for Row = 1:8
-    InputIndex = ceil(Row / 2);
-    if Row <= 6
-        InputValue(Row) = SensitivityBase(InputIndex) * (1 + Change_percent(Row) / 100);
-    else
-        SurfaceCases_C = [2, 5];
-        InputValue(Row) = SurfaceCases_C(Row - 6);
-    end
-    TrialCondenser = Condenser;
-    TrialGas = Gas;
-    TrialWater = Water;
-    switch InputIndex
-        case 1
-            TrialWater.DesignRate_kg_s = InputValue(Row) / 60000;
-        case 2
-            TrialGas.SuitTemperature_C = InputValue(Row);
-        case 3
-            TrialGas.SuitRH_percent = InputValue(Row);
-        case 4
-            TrialCondenser.SurfaceTemperature_C = InputValue(Row);
-            Properties = liquidWaterProperties(InputValue(Row));
-            TrialWater.Cp_J_kgK = Properties.Cp_J_kgK;
-            TrialWater.Density_kg_m3 = Properties.Density_kg_m3;
-            TrialWater.Viscosity_Pa_s = Properties.Viscosity_Pa_s;
-    
-    end
-    % Keep invalid perturbed conditions visible as infeasible rows.
-    if TrialGas.SuitRH_percent <= 100 && TrialGas.SuitTemperature_C > TrialCondenser.SurfaceTemperature_C ...
-            && TrialGas.SuitRH_percent / 100 * saturationPressure(TrialGas.SuitTemperature_C) < TrialGas.Pressure_Pa
-        TrialGas = condenserGasProperties(TrialGas, TrialWater, TrialCondenser);
-        Trial = condenserArea(TrialCondenser.SurfaceTemperature_C, TrialGas, TrialWater, TrialCondenser);
-        Area_m2(Row) = Trial.RequiredArea_m2;
-        Cooling_W(Row) = Trial.CoolingDuty_W;
-        Feasible(Row) = Trial.Feasible;
-    end
-end
-AreaChange_percent = NaN(8, 1);
-CoolingChange_percent = NaN(8, 1);
-if Selected.Feasible
-    AreaChange_percent = 100 * (Area_m2 / Selected.RequiredArea_m2 - 1);
-    CoolingChange_percent = 100 * (Cooling_W / Selected.CoolingDuty_W - 1);
-end
-Sensitivity_Summary = table(Input, Change, InputValue, Area_m2, AreaChange_percent, ...
-    Cooling_W, CoolingChange_percent, Feasible);
-
-%% RH Sizing - Full EVA Comparison
-% A separate function keeps the time-history sizing out of the plotting sections.
-EVA_Sizing.LoadFOS = Water_Load_FOS;
-EVA_Sizing.Duration_min = EVA_Duration_min;
-GasPropertiesFunction = @condenserGasProperties;
-AreaSizingFunction = @condenserArea;
-EVA_Design = sizeEVARH(EVA_Profile, Gas, Water, Condenser, Separator, ...
-    SeparatorPressure_Pa, EVA_Sizing, GasPropertiesFunction, AreaSizingFunction);
-%% RH Sizing - Results
-fprintf('\nFixed suit ventilation: %.3g actual CFM at the supply conditions.\n', Ventilation.Flow_CFM);
-fprintf('RH excursions are reported without rejecting selected condensers; above 100%% indicates unmodelled condensation.\n');
-
-disp('Selected condenser sizing and full-EVA performance:');
-SelectedSummary = EVA_Design.SelectedSummary;
-fprintf('%-32s %18s %18s\n', 'Quantity', 'Average-load size', '99% capacity size');
-fprintf('%-32s %18s %18s\n', 'Core dimensions (L x W x H, mm)', ...
-    sprintf('%.1f x %.1f x %.1f', SelectedSummary.CoreLength_mm(1), SelectedSummary.CoreWidth_mm(1), SelectedSummary.CoreHeight_mm(1)), ...
-    sprintf('%.1f x %.1f x %.1f', SelectedSummary.CoreLength_mm(2), SelectedSummary.CoreWidth_mm(2), SelectedSummary.CoreHeight_mm(2)));
-SelectedLabels = ["Transfer area (m2)"; "Core volume (L)"; "Average cooling (W)"; ...
-    "Peak cooling (W)"; "Average removal (g/min)"; "Peak removal (g/min)"; ...
-    "Max saturated capacity (g/min)"; "Collected water (g)"; "Maximum suit RH (%)"; ...
-    "Average condenser exit temp (C)"; "Peak condenser exit temp (C)"; ...
-    "Average condenser exit RH (%)"; "Peak condenser exit RH (%)"];
-SelectedValues = [SelectedSummary.InstalledArea_m2'; SelectedSummary.CoreVolume_L'; ...
-    SelectedSummary.AverageCooling_W'; SelectedSummary.PeakCooling_W'; ...
-    SelectedSummary.AverageRemoval_g_min'; SelectedSummary.PeakRemoval_g_min'; ...
-    SelectedSummary.MaximumSaturatedCapacity_g_min'; SelectedSummary.CollectedWater_g'; ...
-    SelectedSummary.MaximumSuitRH_percent'; SelectedSummary.AverageCondenserOutlet_C'; ...
-    SelectedSummary.PeakCondenserOutlet_C'; SelectedSummary.AverageCondenserOutletRH_percent'; ...
-    SelectedSummary.PeakCondenserOutletRH_percent'];
-for Row = 1:numel(SelectedLabels)
-    fprintf('%-32s %18.3f %18.3f\n', SelectedLabels(Row), SelectedValues(Row, 1), SelectedValues(Row, 2));
-end
-fprintf('Condenser exit conditions are before external reheating; averages are time weighted.\n');
-fprintf('Above 100%% RH indicates unmodelled condensation/fog; removal and cooling may be overstated.\n\n');
-disp('Sensitivity at the average inlet state (fixed airflow; not a full-EVA rerun):');
-disp(Sensitivity_Summary);
-fprintf('Areas are rounded up to whole channels. Core length %.2f mm; height %.2f mm.\n', ...
-    Condenser.ChannelLength_m * 1000, Condenser.ChannelHeight_m * 1000);
-fprintf('Temperatures and astronaut sources remain prescribed; condenser feedback to JOS-3 is not rerun.\n');
-
-%% Hardware Sizing - Input Requirements and Snapshot
-% Save a design snapshot; component calculations below use Component_Inputs directly.
-% Use the 99%-capacity case for all downstream component requirements.
-ComponentDesign = EVA_Design.SelectedSummary(2, :);
-ComponentDesignValid = ComponentDesign.MaximumSuitRH_percent <= 100 && DrainFeasible;
-ComponentSeparatorArea_m2 = ComponentDesign.PeakRemoval_g_min / 60000 ...
-    / Water.Density_kg_m3 * Water.Viscosity_Pa_s * Separator.Thickness_m ...
-    / (Separator.Permeability_m2 * Separator.PermeabilityRetention * SeparatorPressure_Pa);
-Parameter = ["WaterRate_g_min"; "EVA_Duration_min"; "SurfaceTemperature_C"; ...
-    "CoolingDuty_W"; "CondenserArea_m2"; "ChannelCount"; "ChannelGap_m"; ...
-    "FinThickness_m"; "ChannelHeight_m"; "ChannelLength_m"; "SeparatorArea_m2"; ...
-    "SeparatorThickness_m"; "SuctionPressure_Pa"; "GasPressure_kPa"; ...
-    "ActualFlow_m3_s"; "ChannelPressureDrop_Pa"; "WaterDensity_kg_m3"];
-Label = ["Peak collected water rate, 99% capacity case"; "Storage duration"; "Cooled fin-root temperature"; ...
-    "Peak cooling duty, 99% capacity case"; "Installed wetted condenser area"; ...
-    "Rounded installed channel count"; "Clear gas gap"; "Graphite fin thickness"; ...
-    "Clear gas channel height"; "Gas channel length"; "Required liquid separator area"; ...
-    "Equivalent separator thickness"; "Liquid suction below suit pressure"; ...
-    "Absolute gas pressure"; "Actual gas volume flow"; "Straight-channel friction only"; ...
-    "Liquid density at operating temperature"];
-Value = [ComponentDesign.PeakRemoval_g_min; EVA_Duration_min; Condenser.SurfaceTemperature_C; ...
-    ComponentDesign.PeakCooling_W; ComponentDesign.InstalledArea_m2; ComponentDesign.Channels; ...
-    Condenser.ChannelGap_m; Condenser.FinThickness_m; Condenser.ChannelHeight_m; ...
-    Condenser.ChannelLength_m; ComponentSeparatorArea_m2; Separator.Thickness_m; ...
-    Separator.SuctionPressure_Pa; Gas.Pressure_kPa; EVA_Design.PeakFlow_m3_s; ...
-    EVA_Design.SelectedPressureDrop_Pa(2); Water.Density_kg_m3];
-Unit = ["g/min"; "min"; "deg C"; "W thermal"; "m2"; "count"; "m"; "m"; "m"; "m"; ...
-    "m2"; "m"; "Pa"; "kPa absolute"; "m3/s actual"; "Pa"; "kg/m3"];
-Parameter = [Parameter; "AverageCoolingDuty_W"; "TotalCollectedWater_kg"; "AverageMoisture_g_min"];
-Label = [Label; "Time-weighted EVA cooling duty"; "Integrated EVA collected water"; "Time-weighted EVA moisture"];
-Value = [Value; ComponentDesign.AverageCooling_W; ComponentDesign.CollectedWater_g / 1000; ...
-    ComponentDesign.AverageRemoval_g_min];
-Unit = [Unit; "W thermal"; "kg"; "g/min"];
-Component_Inputs = table(Parameter, Label, Value, Unit);
-Component_Input_File = fullfile(fileparts(mfilename('fullpath')), 'RH_Component_Inputs.xlsx');
-% Preserve other workbook sheets; clear only the obsolete sweep results.
-if isfile(Component_Input_File) && any(strcmp(sheetnames(Component_Input_File), 'Airflow Search'))
-    writecell({'Status', 'Airflow sweep removed; the model now uses the fixed supply airflow.'}, ...
-        Component_Input_File, 'Sheet', 'Airflow Search', 'WriteMode', 'overwritesheet');
-end
-writecell({'99 percent capacity design valid', ComponentDesignValid; ...
-    'Reason', char(ComponentDesign.Note); ...
-    'Selected RH ceiling design valid', EVA_Design.BufferedFeasible}, ...
-    Component_Input_File, 'Sheet', 'Design Status', 'WriteMode', 'overwritesheet');
-writetable(EVA_Design.TimeHistory, Component_Input_File, 'Sheet', 'EVA Requirements', ...
-    'WriteMode', 'overwritesheet', 'AutoFitWidth', true);
-writetable(EVA_Design.SelectedSummary, Component_Input_File, 'Sheet', 'EVA Comparison', ...
-    'WriteMode', 'overwritesheet', 'AutoFitWidth', true);
-writetable(Component_Inputs, Component_Input_File, 'Sheet', 'Component Inputs', ...
-    'WriteMode', 'overwritesheet', 'AutoFitWidth', true);
-writecell({'Source', 'Nominal_Metabolic_Profile.m: 99 percent capacity condenser case'; ...
-    'Updated UTC', char(datetime('now', 'TimeZone', 'UTC')); ...
-    'Refresh', 'Rerun Nominal_Metabolic_Profile.m; component sizing is included.'}, ...
-    Component_Input_File, 'Sheet', 'Component Inputs', 'Range', 'A24', 'AutoFitWidth', false);
-
-%% Hardware Sizing - Calculations
-% Use the in-memory 99%-capacity requirements; no workbook read is needed.
-ComponentModelValid = ComponentDesignValid;
-assert(all(isfinite(Component_Inputs.Value) & Component_Inputs.Value > 0), ...
-    'RH:ComponentInputs', 'Component requirements must be positive and finite.');
-for Row = 1:height(Component_Inputs)
-    RH.(Component_Inputs.Parameter(Row)) = Component_Inputs.Value(Row);
-end
-assert(RH.ChannelCount == round(RH.ChannelCount), 'RH:Channels', 'Channel count must be an integer.');
-
-% Assumption Checks
-assert(PackingFactor > 0 && PackingFactor <= 1 && StorageFillFraction > 0 ...
-    && StorageFillFraction < 1 && CoolingMargin >= 1 && TankJointEfficiency > 0 ...
-    && TankJointEfficiency <= 1 && BlowerEfficiency > 0 && BlowerEfficiency <= 1, ...
-    'RH:Assumptions', 'Check packing, fill, efficiency and margin inputs.');
-assert(ColdPlateMetalFraction > 0 ...
-    && ColdPlateMetalFraction <= 1 && ExternalPressure_kPa < RH.GasPressure_kPa, ...
-    'RH:Geometry', 'Check cold plate and external pressure.');
-assert(Loop.Flow_L_min > 0 && Loop.MaximumRise_K > 0 && Loop.CondensingApproach_K > 0 ...
-    && Loop.HeaderPressureDrop_Pa >= 0, ...
-    'RH:LoopInputs', 'Check shared water-loop inputs.');
-
-% Integrated Porous Condenser and Separator Dimensions
-CoreWidth_m = RH.ChannelCount * RH.ChannelGap_m ...
-    + (RH.ChannelCount + 1) * RH.FinThickness_m;
-CoreHeight_m = RH.ChannelHeight_m + 2 * PorousBaseThickness_m;
-CoreLength_m = RH.ChannelLength_m;
-FinVolume_m3 = (RH.ChannelCount + 1) * RH.FinThickness_m ...
-    * RH.ChannelHeight_m * CoreLength_m;
-BaseVolume_m3 = 2 * CoreWidth_m * CoreLength_m * PorousBaseThickness_m;
-CondenserEnvelope_m = [CoreLength_m, CoreWidth_m, CoreHeight_m];
-CondenserMass_kg = (FinVolume_m3 + BaseVolume_m3) * GraphiteDensity_kg_m3;
-% ASSUMPTION: separation is integrated within this substrate envelope/mass.
-% Hydraulic separator area remains a requirement, not an additional ceramic stack.
-% Detailed embedded separator construction and gas/liquid manifolds are not sized.
-
-% Heat Exchanger and Refrigeration Capability
-DesignCooling_W = RH.CoolingDuty_W * CoolingMargin;
-AverageDesignCooling_W = RH.AverageCoolingDuty_W * CoolingMargin;
-ColdPlateArea_m2 = max(DesignCooling_W / ColdPlateHeatFlux_W_m2, CoreWidth_m * CoreLength_m);
-ColdPlateEnvelope_m = [sqrt(ColdPlateArea_m2), sqrt(ColdPlateArea_m2), ColdPlateThickness_m];
-ColdPlateMass_kg = prod(ColdPlateEnvelope_m) * ColdPlateMetalFraction * AluminiumDensity_kg_m3;
-Evaporator_C = RH.SurfaceTemperature_C - EvaporatorApproach_K;
-[UnitCapacity_W, UnitPower_W] = compressorMap(Evaporator_C, RefrigerantCondensing_C);
-CompressorCount = ceil(DesignCooling_W / UnitCapacity_W);
-CompressorDutyFraction = AverageDesignCooling_W / (CompressorCount * UnitCapacity_W);
-CompressorAverage_W = CompressorCount * UnitPower_W * CompressorDutyFraction;
-CompressorOn_W = CompressorCount * UnitPower_W;
-% Map includes compressor electrical input; accessory hardware is excluded.
-RefrigerationCOP = UnitCapacity_W / UnitPower_W;
-
-% Pump Capability and Liquid Storage
-LiquidFlow_m3_s = RH.WaterRate_g_min / 60000 / RH.WaterDensity_kg_m3;
-RequiredPumpFlow_ml_min = LiquidFlow_m3_s * 60e6 * PumpFlowMargin;
-PumpInlet_kPa = RH.GasPressure_kPa - RH.SuctionPressure_Pa / 1000;
-% Tank is assumed pressure-balanced to suit pressure, with a liquid bladder.
-RequiredPumpPressure_Pa = RH.SuctionPressure_Pa + DrainLoss_Pa;
-PumpHydraulic_W = RequiredPumpPressure_Pa * RequiredPumpFlow_ml_min / 60e6;
-AverageLiquidFlow_ml_min = RH.AverageMoisture_g_min / RH.WaterDensity_kg_m3 * 1000;
-PumpDutyFraction = AverageLiquidFlow_ml_min / RequiredPumpFlow_ml_min;
-% Equivalent on-time assumes storage between cycles; cycling/control is not designed.
-PumpOnTime_min = PumpDutyFraction * RH.EVA_Duration_min;
-assert(PumpInlet_kPa > 0, 'RH:PumpInlet', 'Pump inlet absolute pressure must be positive.');
-WaterStored_kg = RH.TotalCollectedWater_kg;
-TankInternalVolume_m3 = WaterStored_kg / RH.WaterDensity_kg_m3 / StorageFillFraction;
-TankRadius_m = (3 * TankInternalVolume_m3 / (4 * pi))^(1/3);
-TankPressure_Pa = (RH.GasPressure_kPa - ExternalPressure_kPa) * 1000;
-TankWall_m = max(TankMinimumWall_m, TankPressure_Pa * TankRadius_m ...
-    / (2 * TankAllowableStress_Pa * TankJointEfficiency));
-TankOuterRadius_m = TankRadius_m + TankWall_m;
-TankEnvelope_m = 2 * TankOuterRadius_m * [1, 1, 1];
-TankMass_kg = 4 * pi / 3 * (TankOuterRadius_m^3 - TankRadius_m^3) ...
-    * AluminiumDensity_kg_m3 + TankFittingsMass_kg;
-
-% Transfer RH Heat to the Shared Water Loop
-AddedBlower_W = RH.ActualFlow_m3_s * RH.ChannelPressureDrop_Pa ...
-    * GasPressureDropFactor / BlowerEfficiency;
-% Refrigerant condenser transfers evaporator heat plus compressor work.
-HotHX.Duty_W = AverageDesignCooling_W + CompressorAverage_W;
-% Size the exchanger for full reference compressor on-state capacity, not mean duty.
-HotHX.DesignDuty_W = CompressorCount * UnitCapacity_W + CompressorOn_W;
-HotHX.DesignWaterOutlet_C = Loop.LCGOutletTemperature_C + HotHX.DesignDuty_W / Loop.HeatCapacity_W_K;
-HotApproach_K = RefrigerantCondensing_C - Loop.LCGOutletTemperature_C;
-ColdApproach_K = RefrigerantCondensing_C - HotHX.DesignWaterOutlet_C;
-assert(ColdApproach_K > 0, 'RH:WaterTemperature', 'Water is too warm for the selected condensing temperature.');
-LMTD_K = (HotApproach_K - ColdApproach_K) / log(HotApproach_K / ColdApproach_K);
-% Fully developed water-channel h; two broad faces transfer heat.
-HotHX.ChannelCount = ceil(Loop.Flow_m3_s ...
-    / (HotHX.TargetVelocity_m_s * HotHX.Gap_m * HotHX.ChannelWidth_m));
-HotHX.HydraulicDiameter_m = 2 * HotHX.Gap_m * HotHX.ChannelWidth_m ...
-    / (HotHX.Gap_m + HotHX.ChannelWidth_m);
-a = HotHX.Gap_m / HotHX.ChannelWidth_m;
-Nu = 7.541 * (1 - 2.610*a + 4.970*a^2 - 5.119*a^3 + 2.702*a^4 - 0.548*a^5);
-HotHX.WaterFilm_W_m2K = Nu * Loop.Conductivity_W_mK / HotHX.HydraulicDiameter_m;
-% Calculated resistance sum, not a fixed overall coefficient.
-HotHX.Overall_W_m2K = 1 / (1 / HotHX.WaterFilm_W_m2K ...
-    + HotHX.Wall_m / HotHX.MetalConductivity_W_mK + 1 / HotHX.RefrigerantFilm_W_m2K);
-HotHX.Area_m2 = HotHX.DesignDuty_W / (HotHX.Overall_W_m2K * LMTD_K);
-HotHX.Length_m = HotHX.Area_m2 / (2 * HotHX.ChannelCount * HotHX.ChannelWidth_m);
-HotHX.Width_m = HotHX.ChannelCount * HotHX.ChannelWidth_m ...
-    + (HotHX.ChannelCount + 1) * HotHX.FinThickness_m;
-HotHX.Height_m = HotHX.Gap_m + 2 * HotHX.Wall_m;
-% Two extra 1 mm outer plates allow refrigerant passages beside the water plate.
-HotHXEnvelope_m = [HotHX.Length_m + 2 * HeaderLength_m, HotHX.Width_m, HotHX.Height_m + 0.002];
-HotHXVoid_m3 = HotHX.ChannelCount * HotHX.Gap_m * HotHX.ChannelWidth_m * HotHX.Length_m;
-HotHXMass_kg = (prod(HotHXEnvelope_m) - HotHXVoid_m3) * AluminiumDensity_kg_m3;
-WaterVelocity_m_s = Loop.Flow_m3_s / (HotHX.ChannelCount * HotHX.Gap_m * HotHX.ChannelWidth_m);
-HotHX.Reynolds = Loop.Density_kg_m3 * WaterVelocity_m_s * HotHX.HydraulicDiameter_m / Loop.Viscosity_Pa_s;
-assert(HotHX.Reynolds < 2300, 'RH:WaterFlow', 'Water channels exceed the laminar correlation.');
-Poiseuille = 96 * (1 - 1.3553*a + 1.9467*a^2 - 1.7012*a^3 + 0.9564*a^4 - 0.2537*a^5);
-HotHX.PressureDrop_Pa = Poiseuille / HotHX.Reynolds * HotHX.Length_m ...
-    / HotHX.HydraulicDiameter_m * Loop.Density_kg_m3 * WaterVelocity_m_s^2 / 2 ...
-    + Loop.HeaderPressureDrop_Pa;
-% Conservative allocation: all RH auxiliary electrical losses ultimately enter water.
-ExternalRadiatorAddedLoad_W = HotHX.Duty_W + AddedBlower_W;
-ExternalRadiatorAddedOnState_W = HotHX.DesignDuty_W + AddedBlower_W;
-OnStateWaterToExternalCooling_C = Loop.LCGOutletTemperature_C ...
-    + ExternalRadiatorAddedOnState_W / Loop.HeatCapacity_W_K;
-assert(RefrigerantCondensing_C - OnStateWaterToExternalCooling_C >= Loop.CondensingApproach_K, ...
-    'RH:LoopApproach', 'Insufficient hot-side temperature approach at on-state heat load.');
-% MaximumRise_K selects an initial condensing-temperature allowance, not a measured water limit.
-% This is only RH's added radiator load; existing LCG heat is not counted again.
-
-%% Hardware Sizing - Results
-Component = ["Porous condenser / integrated separator"; "Cold heat exchanger"; ...
-    "Refrigeration compressors"; "Liquid storage tank"; "Refrigerant-to-water heat exchanger"];
-Dimensions_m = [CondenserEnvelope_m; ColdPlateEnvelope_m; ...
-    CompressorEnvelope_m .* [CompressorCount, 1, 1]; TankEnvelope_m; HotHXEnvelope_m];
-Length_mm = Dimensions_m(:, 1) * 1000;
-Width_mm = Dimensions_m(:, 2) * 1000;
-Height_mm = Dimensions_m(:, 3) * 1000;
-EnvelopeVolume_L = prod(Dimensions_m, 2) * 1000;
-DryMass_kg = [CondenserMass_kg; ColdPlateMass_kg; ...
-    CompressorCount * CompressorMass_kg; TankMass_kg; HotHXMass_kg];
-StoredWater_kg = [0; 0; 0; WaterStored_kg; 0];
-AverageElectrical_W = [0; 0; CompressorAverage_W; 0; 0];
-OnStateElectrical_W = [0; 0; CompressorOn_W; 0; 0];
-Component_Summary = table(Component, Length_mm, Width_mm, Height_mm, EnvelopeVolume_L, ...
-    DryMass_kg, StoredWater_kg, AverageElectrical_W, OnStateElectrical_W);
-InternalPackageVolume_L = sum(EnvelopeVolume_L) / PackingFactor;
-System_Summary = table(PackingFactor, InternalPackageVolume_L, ...
-    sum(DryMass_kg), sum(DryMass_kg) + WaterStored_kg, sum(AverageElectrical_W) + AddedBlower_W, ...
-    sum(OnStateElectrical_W) + AddedBlower_W, (sum(AverageElectrical_W) + AddedBlower_W) * RH.EVA_Duration_min / 60, ...
-    'VariableNames', {'PackingFactor', 'InternalPackage_L', ...
-    'DryMass_kg', 'EndEVAMass_kg', 'AverageElectrical_W', 'OnStateElectrical_W', 'EVA_Energy_Wh'});
-Capability_Summary = table(DesignCooling_W, ColdPlateArea_m2, RefrigerationCOP, ...
-    RequiredPumpFlow_ml_min, RequiredPumpPressure_Pa / 1000, PumpInlet_kPa, ...
-    PumpHydraulic_W, TankInternalVolume_m3 * 1000, ExternalRadiatorAddedLoad_W, ...
-    'VariableNames', {'DesignCooling_W', 'ColdPlateArea_m2', 'COP', 'PumpFlow_ml_min', ...
-    'PumpPressureRise_kPa', 'PumpInletAbsolute_kPa', 'PumpHydraulic_W', ...
-    'TankCapacity_L', 'AddedExternalRadiatorLoad_W'});
-if ~ComponentModelValid
-    fprintf('Provisional 99%%-capacity hardware estimate: %s\n', string(ComponentDesign.Note));
-end
-disp(Component_Summary);
-displaySummary('Package mass, volume and electrical demand', ...
-    ["Packing factor"; "Internal package volume"; "Dry mass"; "End-EVA mass, including collected water"; ...
-    "Average electrical power"; "Compressor on-state electrical power"; "EVA electrical energy"], ...
-    table2array(System_Summary), ["-"; "L"; "kg"; "kg"; "W electrical"; "W electrical"; "Wh"]);
-displaySummary('Equipment requirements and equivalent duty cycles', ...
-    ["Liquid pump rated flow"; "Liquid pump pressure rise"; "Liquid pump inlet pressure"; ...
-    "Liquid pump hydraulic power when on"; "Liquid pump equivalent duty cycle"; "Liquid pump total on-time"; ...
-    "Cold heat exchanger design duty"; "Cold heat exchanger area"; "Cold exchanger equivalent load fraction"; ...
-    "Compressor count"; "Cooling capacity per compressor"; "Electrical power per compressor"; ...
-    "Compressor equivalent duty cycle"; "Compressor total on-time"; ...
-    "Refrigerant evaporating temperature"; "Refrigerant condensing temperature"; ...
-    "Hot heat exchanger design duty"; "Hot heat exchanger area"; ...
-    "Hot exchanger equivalent load fraction"; "Required hot-side water flow"; ...
-    "Hot-side water pressure drop"; "Integrated separator hydraulic area"; "Refrigeration COP"; "Water tank capacity"], ...
-    [RequiredPumpFlow_ml_min; RequiredPumpPressure_Pa / 1000; PumpInlet_kPa; ...
-    PumpHydraulic_W; PumpDutyFraction * 100; PumpOnTime_min; ...
-    DesignCooling_W; ColdPlateArea_m2; AverageDesignCooling_W / DesignCooling_W * 100; CompressorCount; UnitCapacity_W; UnitPower_W; ...
-    CompressorDutyFraction * 100; CompressorDutyFraction * RH.EVA_Duration_min; ...
-    Evaporator_C; RefrigerantCondensing_C; HotHX.DesignDuty_W; HotHX.Area_m2; ...
-    HotHX.Duty_W / HotHX.DesignDuty_W * 100; Loop.Flow_L_min; ...
-    HotHX.PressureDrop_Pa / 1000; RH.SeparatorArea_m2; RefrigerationCOP; TankInternalVolume_m3 * 1000], ...
-    ["mL/min"; "kPa"; "kPa absolute"; "W hydraulic"; "%"; "min"; ...
-    "W thermal"; "m2"; "%"; "count"; "W thermal"; "W electrical"; "%"; "min"; ...
-    "C"; "C"; "W thermal"; "m2"; "%"; "L/min"; "kPa"; "m2"; "-"; "L"]);
-fprintf('Components use the 99%%-capacity condenser: its peak duty sizes refrigeration; storage and average power use its EVA totals.\n');
-fprintf('Totals exclude casing, separate separator hardware, pumps, valves, tubing and controls. Blower increment remains included.\n');
-fprintf('Duty cycles are equivalent load fractions, assuming buffered liquid and ideal compressor cycling.\n');
-fprintf('Integrated separation is a packaging assumption; embedded construction needs verification.\n');
+%% Condenser Size-Temperature Trade
+plotSizingSearch(EVA_Design, EVA_Sizing.SizeWeight);
 
 %% RH Sizing - Graphs
 % Gas.Flow_CFM is the corresponding actual condenser-inlet flow at mean T/RH.
-plotRHFigures(Gas, Water, Condenser, Ventilation.Flow_CFM, ComponentDesign);
 
-% Maximum Suit RH for Both Selected Condensers
-figure(8);
-set(gcf, 'Name', '8. Condenser EVA Humidity Performance', 'NumberTitle', 'off');
-clf;
+% Full-EVA supply deviations: relative RH and absolute-temperature (kelvin) error.
+figure(9); clf;
+set(gcf, 'Name', '9. Supply Target Compliance', 'NumberTitle', 'off');
+tiledlayout(2, 1);
+History = EVA_Design.SelectedHistory{1};
+RHRelativeError_percent = 100 * History.RHError_percent / EVA_Sizing.SupplyRH_percent;
+TemperatureRelativeError_percent = 100 * History.TemperatureError_C ...
+    ./ (EVA_Profile.SupplyTemperature_C + 273.15);
+RHRelativeTolerance_percent = repmat(100 * EVA_Sizing.RHTolerance_percent ...
+    / EVA_Sizing.SupplyRH_percent, height(EVA_Profile), 1);
+TemperatureRelativeTolerance_percent = 100 * EVA_Sizing.TemperatureTolerance_C ...
+    ./ (EVA_Profile.SupplyTemperature_C + 273.15);
+nexttile;
+plot(EVA_Design.Time_min, [RHRelativeError_percent, TemperatureRelativeError_percent], 'LineWidth', 1.3);
 hold on;
-for Selection = 1:2
-    History = EVA_Design.SelectedHistory{Selection};
-    if ~isempty(History)
-        % Plot each interval's maximum, matching the summary peak calculation.
-        plot(EVA_Design.Time_min, History.MaximumRH_percent, 'LineWidth', 1.5, ...
-            'DisplayName', EVA_Design.SelectedSummary.Case(Selection));
-    end
-end
-xlim([EVA_Profile.StartTime_min(1), EVA_Profile.EndTime_min(end)]);
-xlabel('EVA time (min)'); ylabel('Interval maximum suit RH (%)');
-title({'Condenser EVA Humidity Performance', 'RH above 100% indicates unmodelled condensation'});
-legend('show', 'Location', 'best');
+plot(EVA_Design.Time_min, [RHRelativeTolerance_percent, TemperatureRelativeTolerance_percent], '--', 'LineWidth', 1);
+hold off;
+ylabel('Error relative to target (%)');
+legend('RH error', 'Temperature error (K basis)', 'RH tolerance', ...
+    'Temperature tolerance (K basis)', 'Location', 'northeast'); grid on;
+nexttile;
+plot(EVA_Design.Time_min, [History.MaximumRH_percent, History.UncorrectedMaximumRH_percent], 'LineWidth', 1.3);
+legend('Equilibrium RH', 'Before phase adjustment', 'Location', 'northeast');
+ylabel('Maximum regional/suit RH (%)'); xlabel('EVA time (min)'); grid on;
+sgtitle('Supply Target Compliance and Regional RH Diagnostics');
+
+%% Air Warmer - Graphs
+% Selected hardware basis: interval-average conditions.
+WarmerHistory = EVA_Design.SelectedHistory{1};
+figure(10);
+set(gcf, 'Name', '10. Air Warmer EVA Performance', 'NumberTitle', 'off');
+tiledlayout(3, 1);
+nexttile;
+plot(EVA_Design.Time_min, WarmerHistory.Reheat_W, 'LineWidth', 1.3);
+ylabel('Heating (W thermal)');
+title('Air Warmer Heating Requirement');
+legend('Interval average', 'Location', 'best');
+grid on;
+nexttile;
+plot(EVA_Design.Time_min, [WarmerHistory.CondenserOutlet_C, ...
+    WarmerHistory.ReheatedTemperature_C], 'LineWidth', 1.3);
+yline(BodyMicroclimate.AirTemperature_C, ':', 'Supply target', 'HandleVisibility', 'off');
+ylabel('Temperature (C)');
+title('Temperature Before and After Warming');
+ylim([min(WarmerHistory.CondenserOutlet_C) - 1, max(WarmerHistory.ReheatedTemperature_C) + 1]);
+legend('Warmer inlet', 'Warmer outlet', 'Location', 'best');
+grid on;
+nexttile;
+plot(EVA_Design.Time_min, [WarmerHistory.CondenserOutletRH_percent, ...
+    WarmerHistory.ReheatedRH_percent], 'LineWidth', 1.3);
+yline(BodyMicroclimate.RelativeHumidity_percent, ':', 'Supply target', 'HandleVisibility', 'off');
+ylabel('Relative humidity (%)');
+title('RH Before and After Warming');
+WarmerRH = [WarmerHistory.CondenserOutletRH_percent; WarmerHistory.ReheatedRH_percent; ...
+    BodyMicroclimate.RelativeHumidity_percent];
+ylim([max(0, min(WarmerRH) - 5), max(WarmerRH) + 5]);
+legend('Inlet interval average', 'Outlet interval average', 'Location', 'best');
 grid on;
 hold off;
+xlabel('EVA time (min)');
+sgtitle('Air Warmer: Selected Outlet-Control Design');
+
+drawnow; % Render figures once before the remaining sensitivity calculations.
+
+%% Final Hardware Summary
+displaySection('HARDWARE | COMPONENT SIZES');
+disp(Component_Summary(:, 1:6));
+
+%% RH Sizing - Full-EVA Design Sensitivity
+% Perturb the off-nominal design case; physiological sources/temperatures stay prescribed.
+assert(isequal(EVA_Profile.StartTime_min, OffNominal_Moisture_Profile.StartTime_min) ...
+    && isequal(EVA_Profile.EndTime_min, OffNominal_Moisture_Profile.EndTime_min) ...
+    && isequal(EVA_Profile.PhysicalMoisture_g_min, OffNominal_Moisture_Profile.VaporToPLSS_g_min) ...
+    && isequal(EVA_Profile{:, {'NeckOutlet_C', 'TorsoOutlet_C', 'LegOutlet_C'}}, ...
+        OffNominal_Moisture_Profile{:, {'NeckOutlet_C', 'TorsoOutlet_C', 'LegOutlet_C'}}), ...
+    'RH:SensitivityBaseline', 'Sensitivity must use the off-nominal moisture and air-state profile.');
+BaselinePeakCooling_W = EVA_Design.SelectedSummary.PeakCooling_W;
+validateattributes(BaselinePeakCooling_W, {'numeric'}, {'scalar', 'finite', 'positive'});
+Input = ["Moisture load"; "Moisture load"; "Supply temperature"; "Supply temperature"; ...
+    "Supply RH"; "Supply RH"];
+Change = ["-10%"; "+10%"; "-1 C"; "+1 C"; "-5 percentage points"; "+5 percentage points"];
+Feasible = false(6, 1);
+Channels = NaN(6, 1);
+PeakCooling_W = NaN(6, 1);
+for Row = 1:6
+    TrialProfile = EVA_Profile;
+    TrialSettings = EVA_Sizing;
+    switch Row
+        case 1, TrialProfile.DesignMoisture_g_min = EVA_Profile.DesignMoisture_g_min * 0.9;
+        case 2, TrialProfile.DesignMoisture_g_min = EVA_Profile.DesignMoisture_g_min * 1.1;
+        case 3, TrialProfile.SupplyTemperature_C = EVA_Profile.SupplyTemperature_C - 1;
+        case 4, TrialProfile.SupplyTemperature_C = EVA_Profile.SupplyTemperature_C + 1;
+        case 5, TrialSettings.SupplyRH_percent = EVA_Sizing.SupplyRH_percent - 5;
+        case 6, TrialSettings.SupplyRH_percent = EVA_Sizing.SupplyRH_percent + 5;
+    end
+    TrialWarmerSizing = @(History, Count) sizeAirWarmer(AirWarmer, History, ...
+        TrialProfile, Water.VaporCp_J_kgK);
+    Trial = sizeEVARH(TrialProfile, Gas, Water, Condenser, TrialSettings, ...
+        GasPropertiesFunction, TrialWarmerSizing);
+    Feasible(Row) = Trial.Feasible;
+    if Trial.Feasible
+        Channels(Row) = Trial.SelectedSummary.Channels;
+        PeakCooling_W(Row) = Trial.SelectedSummary.PeakCooling_W;
+    end
+end
+% Signed cooling-duty change from the unperturbed off-nominal selected design.
+% Infeasible trials retain NaN rather than implying zero change.
+PeakCoolingChange_percent = 100 * (PeakCooling_W - BaselinePeakCooling_W) / BaselinePeakCooling_W;
+Sensitivity_Summary = table(Input, Change, Feasible, Channels, PeakCooling_W, PeakCoolingChange_percent);
+
+displaySection('RH SYSTEM | OFF-NOMINAL SIZING SENSITIVITY');
+fprintf('Baseline: off-nominal EVA; peak cooling %.3f W. Change is relative to this duty.\n\n', ...
+    BaselinePeakCooling_W);
+disp(Sensitivity_Summary);
 
 %% Local Functions
 function Mapped_Rates_kJ_hr = mapMetabolicRates(Activity_Names, MetMan)
@@ -891,11 +917,9 @@ end
 end
 
 function Water = liquidWaterProperties(Temperature_C)
-% IAPWS SR6-08(2011), Eqs. 2 and 7, Tables 1-2; R1-76(2014) surface tension.
+% IAPWS SR6-08(2011), liquid density and heat capacity.
 % https://iapws.org/technical-guidance/release/LiquidWater.download
-% https://iapws.org/technical-guidance/release/Surf-H2O.download
 % Use the 0.1 MPa liquid correlations as a low-pressure approximation for rho/cp.
-% IAPWS permits the viscosity equation from saturation pressure to 0.3 MPa.
 validateattributes(Temperature_C, {'numeric'}, {'scalar', 'finite', '>=', 0, '<=', 100});
 T_K = Temperature_C + 273.15;
 R = 461.51805;
@@ -915,10 +939,7 @@ Water.Cp_J_kgK = -R * (-8.983025854 + T_K / 10 * ...
     (sum(n .* (n + 1) .* a .* Alpha.^(n + 2)) + sum(m .* (m + 1) .* b .* Beta.^(m + 2))));
 Water.Temperature_C = Temperature_C;
 Water.Density_kg_m3 = 1 / SpecificVolume_m3_kg;
-Water.Viscosity_Pa_s = 1e-6 * sum([280.68, 511.45, 61.131, 0.45903] ...
-    .* (T_K / 300).^[-1.9, -7.7, -19.6, -40]);
-Tau = 1 - T_K / 647.096;
-Water.SurfaceTension_N_m = 0.2358 * Tau^1.256 * (1 - 0.625 * Tau);
+
 end
 
 function Gas = condenserGasProperties(Gas, Water, Condenser)
@@ -982,7 +1003,7 @@ MaximumRate = max(0, Gas.DryFlow_kg_s * (Gas.InletHumidityRatio - wSurface));
 Result = struct('MaximumRemoval_g_min', MaximumRate * 60000, 'Feasible', false, ...
     'Status', "Required removal exceeds the surface-equilibrium limit at this airflow.", ...
     'RequiredArea_m2', Inf, 'InstalledArea_m2', Inf, 'ChannelCount', NaN, ...
-    'Reynolds', NaN, 'ChannelPressureDrop_Pa', NaN, 'CoreWidth_m', NaN, ...
+    'Reynolds', NaN, 'CoreWidth_m', NaN, ...
     'EntryLengthRatio', NaN, 'OutletTemperature_C', NaN, 'OutletRH_percent', NaN, ...
     'ReheatedRH_percent', NaN, 'CoolingDuty_W', NaN, 'ExternalReheat_W', NaN);
 if W.DesignRate_kg_s >= MaximumRate || MaximumRate <= 0
@@ -1007,10 +1028,6 @@ if Re >= 2300
     Result.Status = "Channel flow is outside the laminar correlation; revise geometry.";
     return;
 end
-a = Gas.AspectRatio;
-Poiseuille = 96 * (1 - 1.3553*a + 1.9467*a^2 - 1.7012*a^3 + 0.9564*a^4 - 0.2537*a^5);
-FrictionDrop_Pa = Poiseuille / Re * C.ChannelLength_m / Gas.HydraulicDiameter_m ...
-    * Gas.Density_kg_m3 * Velocity_m_s^2 / 2;
 hIn = Gas.Cp_J_kgK * Gas.SuitTemperature_C + Gas.InletHumidityRatio ...
     * (W.VaporEnthalpyAtZero_J_kg + W.VaporCp_J_kgK * Gas.SuitTemperature_C);
 hOut = Gas.Cp_J_kgK * Outlet_C + wOutlet * (W.VaporEnthalpyAtZero_J_kg + W.VaporCp_J_kgK * Outlet_C);
@@ -1023,7 +1040,6 @@ Result.RequiredArea_m2 = Area_m2;
 Result.ChannelCount = Channels;
 Result.InstalledArea_m2 = Channels * ChannelArea_m2;
 Result.Reynolds = Re;
-Result.ChannelPressureDrop_Pa = FrictionDrop_Pa;
 % Single straight stack envelope; excludes casing, headers and separator inserts.
 Result.CoreWidth_m = Channels * C.ChannelGap_m + (Channels + 1) * C.FinThickness_m;
 Result.EntryLengthRatio = 0.05 * Re * max([1, Gas.Prandtl, Gas.Schmidt]) ...
@@ -1042,14 +1058,14 @@ function [Cp, Viscosity, Conductivity] = oxygenProperties(T_K)
 % https://webbook.nist.gov/cgi/cbook.cgi?ID=C7782447&Mask=1
 % https://trc.nist.gov/refprop/FAQ/NAO.PDF, Eqs. 2 and 5, Tables I, II, IV.
 t = T_K / 1000;
-Cp = (31.32234 - 20.23531 * t + 57.86644 * t^2 - 36.50624 * t^3 - 0.007374 / t^2) / 0.0319988;
+Cp = (31.32234 - 20.23531 * t + 57.86644 * t.^2 - 36.50624 * t.^3 - 0.007374 ./ t.^2) / 0.0319988;
 Log_Tstar = log(T_K / 118.5);
-Collision_Integral = exp(0.431 - 0.4623 * Log_Tstar + 0.08406 * Log_Tstar^2 + ...
-    0.005341 * Log_Tstar^3 - 0.00331 * Log_Tstar^4);
-Viscosity_microPa_s = 0.0266958 * sqrt(31.9988 * T_K) / (0.3428^2 * Collision_Integral);
+Collision_Integral = exp(0.431 - 0.4623 * Log_Tstar + 0.08406 * Log_Tstar.^2 + ...
+    0.005341 * Log_Tstar.^3 - 0.00331 * Log_Tstar.^4);
+Viscosity_microPa_s = 0.0266958 * sqrt(31.9988 * T_K) ./ (0.3428^2 * Collision_Integral);
 Viscosity = Viscosity_microPa_s * 1e-6;
-Conductivity = (1.036 * Viscosity_microPa_s + 6.283 * (154.581 / T_K)^(-0.9) ...
-    - 4.262 * (154.581 / T_K)^(-0.6)) * 1e-3;
+Conductivity = (1.036 * Viscosity_microPa_s + 6.283 * (154.581 ./ T_K).^(-0.9) ...
+    - 4.262 * (154.581 ./ T_K).^(-0.6)) * 1e-3;
 end
 
 function Pressure_Pa = saturationPressure(Temperature_C)
@@ -1126,93 +1142,140 @@ Fin.TipTemperature_C = Temperature(end);
 % Efficiencies evaluated at inlet conditions give no downstream recovery credit.
 end
 
-function plotRHFigures(Gas, Water, Condenser, SupplyFlow_CFM, CapacityDesign)
-% Fixed mean inlet T/RH plots at the selected supply airflow.
-Selected = condenserArea(Condenser.SurfaceTemperature_C, Gas, Water, Condenser);
-% Above-Freezing Capacity
-Surface_C = linspace(0, Gas.SuitTemperature_C, 100);
-MaximumRemoval_g_min = zeros(size(Surface_C));
-for Index = 1:numel(Surface_C)
-    Trial = condenserArea(Surface_C(Index), Gas, Water, Condenser);
-    MaximumRemoval_g_min(Index) = Trial.MaximumRemoval_g_min;
+function plotSizingSearch(Design, SizeWeight)
+% Plot only the small feasible frontier, not every rejected candidate.
+R = Design.SearchResults;
+figure(8); clf;
+set(gcf, 'Name', '8. Condenser Size-Temperature Trade', 'NumberTitle', 'off');
+if Design.Feasible
+    F = R(R.Feasible, :);
+    plot(F.RootFloor_C, F.CoreVolume_L, '-o', 'LineWidth', 1.3, 'MarkerSize', 5);
+    hold on;
+    plot(Design.RootFloor_C, Design.SelectedSummary.CoreVolume_L, 'gp', ...
+        'MarkerSize', 12, 'MarkerFaceColor', 'g');
+    hold off;
+    xlabel('Minimum permitted fin-root temperature (C)'); ylabel('Condenser core volume (L)');
+    legend('Minimum feasible size', 'Selected design', 'Location', 'northeast');
+    title(sprintf('Size-Temperature Trade: Size Weight %.2f', SizeWeight));
+else
+    % Compact failure summary remains available if no frontier exists.
+    Labels = ["Supply target"; "Cold-outlet fog"; "Flow correlation"; "Air warmer"; "Other"];
+    Group = 5 * ones(height(R), 1);
+    Group(contains(R.Reason, 'target', 'IgnoreCase', true)) = 1;
+    Group(contains(R.Reason, 'Cold', 'IgnoreCase', true) ...
+        & contains(R.Reason, 'supersaturat', 'IgnoreCase', true)) = 2;
+    Group(contains(R.Reason, 'laminar', 'IgnoreCase', true) ...
+        | contains(R.Reason, 'correlation', 'IgnoreCase', true)) = 3;
+    Group(contains(R.Reason, 'warmer', 'IgnoreCase', true) ...
+        & ~contains(R.Reason, 'target missed', 'IgnoreCase', true)) = 4;
+    barh(accumarray(Group, 1, [numel(Labels), 1]));
+    yticks(1:numel(Labels)); yticklabels(Labels);
+    xlabel('Rejected candidates'); title('No Feasible Design: Rejection Summary');
 end
-figure(6);
-set(gcf, 'Name', '6. Condenser Moisture Carrying Capacity', 'NumberTitle', 'off');
-plot(Surface_C, MaximumRemoval_g_min);
-hold on;
-yline(Water.DesignRate_kg_s * 60000, '--', 'Required removal');
-xline(Condenser.SurfaceTemperature_C, ':', 'Selected surface');
-xlabel('Condenser surface temperature (C)');
-ylabel('Infinite-area removal limit (g/min)');
-title({"Above-Freezing Capacity at Fixed Airflow", ...
-    sprintf('Supply %.3g CFM; condenser inlet %.3f actual CFM', SupplyFlow_CFM, Gas.Flow_CFM)});
-grid on;
-
-% Condenser Area versus Removal Rate
-% Place the installed 99%-capacity EVA design at its mean-inlet removal rate.
-CapacityArea_m2 = CapacityDesign.InstalledArea_m2;
-CapacityRemoval_g_min = Selected.MaximumRemoval_g_min * (1 - exp( ...
-    -Gas.MassTransfer_m_s * Gas.SurfaceMassEfficiency * CapacityArea_m2 / Gas.Flow_m3_s));
-RemovalRate_g_min = unique([linspace(0.01 * Selected.MaximumRemoval_g_min, ...
-    max(0.99 * Selected.MaximumRemoval_g_min, CapacityRemoval_g_min), 160), ...
-    Water.DesignRate_kg_s * 60000, CapacityRemoval_g_min]);
-RequiredArea_m2 = Inf(size(RemovalRate_g_min));
-for Index = 1:numel(RemovalRate_g_min)
-    TrialWater = Water;
-    TrialWater.DesignRate_kg_s = RemovalRate_g_min(Index) / 60000;
-    Trial = condenserArea(Condenser.SurfaceTemperature_C, Gas, TrialWater, Condenser);
-    RequiredArea_m2(Index) = Trial.RequiredArea_m2;
-end
-figure(7);
-set(gcf, 'Name', '7. Condenser Area Requirement', 'NumberTitle', 'off');
-plot(RemovalRate_g_min, RequiredArea_m2, 'LineWidth', 1.5, 'DisplayName', 'Mean-inlet area requirement');
-hold on;
-RequiredRemoval_g_min = Water.DesignRate_kg_s * 60000;
-xline(RequiredRemoval_g_min, ':', 'Average removal load', 'HandleVisibility', 'off');
-if Selected.Feasible
-    yline(Selected.RequiredArea_m2, ':', 'Area at average load', 'HandleVisibility', 'off');
-    plot(RequiredRemoval_g_min, Selected.RequiredArea_m2, 'p', 'MarkerSize', 13, ...
-        'MarkerFaceColor', 'y', 'MarkerEdgeColor', 'k', 'DisplayName', 'Average-load design');
-end
-yline(CapacityArea_m2, '--', '99% capacity installed area', 'HandleVisibility', 'off');
-plot(CapacityRemoval_g_min, CapacityArea_m2, 'd', 'MarkerSize', 10, ...
-    'MarkerFaceColor', 'c', 'MarkerEdgeColor', 'k', ...
-    'DisplayName', '99% EVA capacity design at mean inlet');
-legend('show', 'Location', 'best');
-xlabel('Water removal rate (g/min)');
-ylabel('Required condenser transfer area (m^2)');
-title({sprintf('Condenser Area at Fixed %.3g Supply ACFM', SupplyFlow_CFM), ...
-    sprintf('Inlet %.3f actual CFM, %.2f C, %.2f%% RH; roots %.1f C', ...
-    Gas.Flow_CFM, Gas.SuitTemperature_C, Gas.SuitRH_percent, Condenser.SurfaceTemperature_C)});
 grid on;
 end
 
-% Component Sizing Functions
-function [Capacity_W, Power_W] = compressorMap(Evaporator_C, Condensing_C)
-% Aspen 14-24-000X R134a map, 4000 rpm, capacity p. 2 and input power p. 4.
-% 10 F superheat, 8 F subcooling; no extrapolation outside tabulated temperatures.
-% https://www.aspencompressor.com/_files/ugd/87858f_5c6d7c7912304575bd2d4ac588718b5b.pdf
-Evaporator_F = Evaporator_C * 1.8 + 32;
-Condensing_F = Condensing_C * 1.8 + 32;
-EvaporatorGrid_F = 10:10:70;
-CondensingGrid_F = [100, 120, 140];
-CapacityMap_W = [62, 106, 150, 210, 271, 350, 430; ...
-    56, 95, 134, 186, 239, 309, 379; 32, 69, 106, 156, 207, 274, 340];
-PowerMap_W = [85, 71, 67, 62, 60, 58, 57; ...
-    83, 84, 84, 84, 84, 85, 85; 79, 97, 105, 110, 112, 115, 116];
-assert(Evaporator_F >= 10 && Evaporator_F <= 70 && Condensing_F >= 100 ...
-    && Condensing_F <= 140, 'RH:CompressorMap', 'Temperatures outside reference compressor map.');
-Capacity_W = interp2(EvaporatorGrid_F, CondensingGrid_F, CapacityMap_W, Evaporator_F, Condensing_F);
-Power_W = interp2(EvaporatorGrid_F, CondensingGrid_F, PowerMap_W, Evaporator_F, Condensing_F);
+function Design = sizeAirWarmer(A, History, Profile, VaporCp)
+% Counterflow Q/LMTD conductance, scaled using NASA PLSS 2.0 test 10.
+% Constant reference UA/volume and mass/volume are preliminary assumptions.
+InstantaneousSizing = isfield(History, 'Instantaneous');
+if InstantaneousSizing
+    Samples = History.Instantaneous;
+    Flow = Samples.DryOxygenFlow_kg_s;
+    Humidity = Samples.OutletHumidityRatio;
+    Cold_C = Samples.ColdTemperature_C;
+    Supply_C = Samples.SupplyTemperature_C;
+    Duty_W = Samples.Reheat_W;
+else
+    Flow = Profile.DryOxygenFlow_kg_s;
+    Humidity = History.MeanOutletW;
+    Cold_C = History.CondenserOutlet_C;
+    Supply_C = History.ReheatedTemperature_C;
+    Duty_W = History.PeakReheat_W;
+end
+[Cp, ~, ~] = oxygenProperties((Cold_C + Supply_C) / 2 + 273.15);
+Capacity_W_K = Flow .* (Cp + Humidity * VaporCp);
+if InstantaneousSizing
+    Duty_W = max(Duty_W, Capacity_W_K .* max(0, Supply_C - Cold_C));
+else
+    Cold_C = Supply_C - Duty_W ./ Capacity_W_K;
+end
+Water = liquidWaterProperties(A.WaterInlet_C);
+validateattributes(A.WaterFlow_kg_h, {'numeric'}, {'scalar', 'real', 'finite', 'positive'});
+WaterFlow_kg_s = A.WaterFlow_kg_h / 3600;
+assert(isfinite(A.MinimumWaterReturn_C) && A.WaterInlet_C > A.MinimumWaterReturn_C && A.ConductanceMargin >= 1, ...
+    'RH:AirWarmerInputs', 'Water supply must exceed the LCG inlet temperature; conductance margin must be at least one.');
+Active = Duty_W > 0;
+if ~any(Active)
+    Design = struct('WaterFlow_L_min', WaterFlow_kg_s / Water.Density_kg_m3 * 60000, ...
+        'WaterFlow_kg_h', A.WaterFlow_kg_h, 'WaterReturn_C', A.WaterInlet_C, ...
+        'UA_W_K', 0, 'Dimensions_m', [0, 0, 0], 'Volume_m3', 0, 'DryMass_kg', 0, ...
+        'RequiredUA_W_K', zeros(size(Duty_W)), 'AirInletAtPeak_C', Cold_C);
+    return;
+end
+assert(A.WaterInlet_C > max(Supply_C(Active)), ...
+    'RH:AirWarmerSupply', 'Warmer water must be hotter than the required air outlet.');
+Design.WaterFlow_kg_h = A.WaterFlow_kg_h;
+Design.WaterFlow_L_min = WaterFlow_kg_s / Water.Density_kg_m3 * 60000;
+Design.WaterReturn_C = A.WaterInlet_C - Duty_W / (WaterFlow_kg_s * Water.Cp_J_kgK);
+assert(all(Design.WaterReturn_C(Active) >= A.MinimumWaterReturn_C - 1e-8), ...
+    'RH:AirWarmerReturn', 'Fixed warmer water flow would cool the return below the LCG inlet temperature.');
+Delta1_K = A.WaterInlet_C - Supply_C;
+Delta2_K = Design.WaterReturn_C - Cold_C;
+assert(all(Delta1_K(Active) > 0 & Delta2_K(Active) > 0), ...
+    'RH:AirWarmerPinch', 'Insufficient water-to-air temperature difference.');
+LMTD_K = Delta1_K;
+Different = Active & abs(Delta1_K - Delta2_K) > 1e-8;
+LMTD_K(Different) = (Delta2_K(Different) - Delta1_K(Different)) ...
+    ./ log(Delta2_K(Different) ./ Delta1_K(Different));
+RequiredUA_W_K = zeros(size(Duty_W));
+RequiredUA_W_K(Active) = Duty_W(Active) ./ LMTD_K(Active);
+Design.UA_W_K = max(RequiredUA_W_K) * A.ConductanceMargin;
+% Invert counterflow effectiveness-NTU using the measured reference flows.
+ReferenceGasCapacity = A.ReferenceGasPressure_Pa ...
+    / (A.ReferenceGasConstant_J_kgK * A.ReferenceGasTemperature_K) ...
+    * A.ReferenceGasFlow_m3_s * A.ReferenceGasCp_J_kgK;
+ReferenceWaterCapacity = A.ReferenceWaterFlow_kg_s * A.ReferenceWaterCp_J_kgK;
+Cmin = min(ReferenceGasCapacity, ReferenceWaterCapacity);
+Cr = Cmin / max(ReferenceGasCapacity, ReferenceWaterCapacity);
+e = A.ReferenceEffectiveness;
+ReferenceNTU = log((1 - e * Cr) / (1 - e)) / (1 - Cr);
+Design.ReferenceUA_W_K = ReferenceNTU * Cmin;
+Scale = Design.UA_W_K / Design.ReferenceUA_W_K;
+% Similar envelope aspect; constant conductance density is not a fin redesign.
+Design.Dimensions_m = A.ReferenceDimensions_m * Scale^(1/3);
+Design.Volume_m3 = prod(Design.Dimensions_m);
+Design.DryMass_kg = A.ReferenceDryMass_kg * Scale;
+Design.RequiredUA_W_K = RequiredUA_W_K;
+Design.AirInletAtPeak_C = Cold_C;
 end
 
 function displaySummary(Title, Label, Value, Unit)
 % Compact vertical output; numeric workspace summary tables remain available.
-fprintf('\n%s\n', Title);
+displaySection(Title);
 fprintf('%-48s %12s  %s\n', 'Parameter', 'Value', 'Unit');
 fprintf('%s\n', repmat('-', 1, 78));
 for Row = 1:numel(Label)
     fprintf('%-48s %12.5g  %s\n', Label(Row), Value(Row), Unit(Row));
 end
 fprintf('\n');
+end
+
+function displaySection(Title)
+% Common command-window section formatting.
+fprintf('\n%s\n%s\n%s\n', repmat('=', 1, 92), Title, repmat('=', 1, 92));
+end
+
+function displayComparison(Title, Label, Values)
+% Single selected design, with units included in the labels.
+displaySection(Title);
+fprintf('%-48s %22s\n', 'Quantity', 'Selected design');
+fprintf('%s\n', repmat('-', 1, 78));
+if isnumeric(Values)
+    Values = compose('%.3f', Values);
+end
+Values = string(Values);
+for Row = 1:numel(Label)
+    fprintf('%-48s %22s\n', Label(Row), Values(Row, 1));
+end
 end
