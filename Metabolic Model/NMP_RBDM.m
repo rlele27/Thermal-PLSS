@@ -119,7 +119,7 @@ writetable(O2_Profile, fullfile(dataFolder, 'Mars_O2_Profile.csv'));
 % Tank pressure decreases with the cumulative O2 mass withdrawn.
 % The downstream regulator setpoint does NOT determine tank depletion
 % directly; it is an independent delivery constraint to verify.
-P_initial_psig = 2100;             % psi gauge (change if tank spec is psia)
+P_initial_psig = 2514;             % psi gauge (change if tank spec is psia)
 P_atm_psi = 14.696;                % psi, gauge-pressure reference
 P_suit_psia = 4.3;                 % psi absolute (nominal setpoint)
 V_tank_m3 = 3.82e-3;               % m^3 (3.82 L)
@@ -149,6 +149,21 @@ mass_remaining_kg(depleted) = NaN;
 P_tank_psia = mass_remaining_kg * R_O2 * T_tank_K / ...
     (V_tank_m3 * psi_to_Pa);
 
+walkback_speed = 3; % km/hr
+walkback_speed_adj = walkback_speed * 1000 * (1/60); % m/min
+astronaut_mass = 100; %kg
+grade = 0;
+
+if (walkback_speed < 7.2) % walking regime
+    walkback_consumption = astronaut_mass * (0.1*walkback_speed_adj + 1.8*walkback_speed_adj*grade + 3.5); % mL/min
+    walkback_consumption = walkback_consumption * 1.429 / 1000 * 1.1; % g/min w/10% suit mobility decrease
+else % running regime
+    walkback_consumption = astronaut_mass * (0.2*walkback_speed_adj + 0.9*walkback_speed_adj*grade + 3.5); % mL/min
+    walkback_consumption = walkback_consumption * 1.429 / 1000; % g/min w/10% suit mobility decrease
+end
+
+walkback_radius = ((mass_remaining_kg*1000)/walkback_consumption)*(walkback_speed_adj/1000);
+
 fprintf('\n--- Regulated PLSS Tank Depletion (ideal gas / isothermal) ---\n');
 fprintf('Initial tank inventory: %.3f kg O2\n', mass_initial_kg);
 fprintf('Total O2 demand: %.3f kg\n', mass_consumed_kg(end));
@@ -163,11 +178,26 @@ end
 fprintf('Suit regulator setpoint: %.1f psia (not modeled dynamically)\n', ...
     P_suit_psia);
 
-figure;
+figure();
 plot(Nominal_Time_hours, P_tank_psia, 'LineWidth', 1.5);
 title('PLSS Oxygen Tank Pressure vs EVA Time');
 xlabel('EVA Time (hours)');
 ylabel('Tank Pressure (psia)');
+grid on;
+
+figure();
+plot(Nominal_Time_hours, mass_remaining_kg, 'LineWidth', 1.5);
+title('PLSS Oxygen Stored vs EVA Time');
+xlabel('EVA Time (hours)');
+ylabel('Oxygen Mass Remaining (kg)');
+grid on;
+
+
+figure();
+plot(Nominal_Time_hours, walkback_radius, 'LineWidth', 1.5);
+title('Max Distance from Hab vs Time');
+xlabel('EVA Time (hours)');
+ylabel('Walkback Radius (km)');
 grid on;
 
 % A regulator inlet-pressure cutoff should be added once manufacturer
