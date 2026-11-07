@@ -59,7 +59,7 @@ rho_ground = 0.2;   % average Martian ground albedo
 T_ground = 235; % K; prescribed ground-temperature scenario
 T_air = 210;    % K; prescribed air-temperature scenario
 T_sky = 170;    % K; EFFECTIVE radiative sky temperature
-T_Rad = 300;  % K; trial radiator surface temperature Assume Skin temp is 307 and delta of 5 K drop from skin to Radiator 
+T_Rad = 289.9;  % K; trial radiator surface temperature Assume Skin temp is 307 and delta of 5 K drop from skin to Radiator 
 
 h = 1;         % W/(m^2 K); prescribed convection coefficient - Assumed from Hayman 2025 paper based on wind speed of 5 m/s
 
@@ -129,6 +129,7 @@ labels = ["Incident Solar", "Albedo", "Ground IR", "Sky IR", ...
 
 colors = lines(numel(IOs));  % One distinct color per bar
 
+% Plot bar chart for I/O of thermal system
 figure()
 hold on
 
@@ -142,7 +143,6 @@ hold off
 xticks(1:numel(IOs))
 xticklabels(labels)
 xtickangle(25)
-
 xlabel("System Thermal Inputs and Outputs (average magnitude)")
 ylabel("Watts")
 title("Martian PLSS Thermal Inputs and Outputs Model")
@@ -169,8 +169,12 @@ Q_shortfall_design = Metabolic_rates(:) ...
 % Cooling Shortfall across the EVA
 figure
 plot(time(:), Q_shortfall_design, 'LineWidth', 1.5);
-yline(0, 'k--', 'Cooling capacity');
-
+yline(0, 'k--')
+% Add manually positioned label
+text(5.7, 15, ...
+    sprintf('Cooling capacity = %.2f W', mean(Q_cooling_available)), ...
+    'HorizontalAlignment', 'left', ...
+    'FontSize', 10);
 xlabel('EVA time [hr]');
 ylabel('Cooling shortfall [W]');
 title('Cooling shortfall across nominal EVA');
@@ -191,7 +195,6 @@ contour(metabolic_unique, theta, Q_unique.', ...
 
 cb = colorbar;
 cb.Label.String = 'Cooling shortfall [W]';
-
 xlabel('Metabolic heat load [W]');
 ylabel('Idealized Sun-path angle [deg]');
 title('Cooling shortfall versus metabolic load and Sun angle');
@@ -213,11 +216,7 @@ grid on
 %   is cooled and then is passed back into the PLSS at 22 deg C
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-% Heat Pipes (Interface between HEX and Radiator shell
-
-
-
-%% Heat Pipe sizing
+%% Heat Pipe Analysis
 % Assumptions
 % We are aiming for a delta T across the heat pipe evaporator wall to the
 % radiator of about 3 deg K. So T_evap ~= 303K if T_rad = 300 which is what
@@ -243,7 +242,7 @@ pipe_lengths = linspace(0,1,101); % m
 evap_length = 0.25*ones(1,101);%m about 12.5 cm
 condensor_length = pipe_lengths-evap_length; % m
 
-T_rad = 300; % Deg K which gives a drop of 5 deg from aveage skin temp 307k
+T_rad = 289.9; % Deg K which gives a drop of 5 deg from aveage skin temp 307k
 
 % Calculate resistances including of the evaporator, condensor, and the
 % bonds
@@ -296,7 +295,8 @@ xlim([0 .8])
 grid on
 hold off
 
-%% Condesing Heat Exchanger (Water/Air - RH)
+
+
 
 %% Freezable Heat Exchanger (Nitrogen/Water - Thermal)
 % Assumptions
@@ -310,30 +310,37 @@ Q_Hex = Q_transport;
 T_LCG = 307;
 
 cp_water = 4180;              % J/(kg K)
-Q_CHE = 80;                    % W; assumed heat added to water
+Q_CHE = 130;                    % W; assumed heat added to water
+
 
 T_w_in = T_LCG; % Assumed/Designed for
-T_evap_surface = 303; % Assumed/Design parameter
+T_w_out = 293; % 20 deg C
+mdot_HEX = Q_Hex/(cp_water*(T_w_in-T_w_out));
 
-mdot_HEX = linspace(5/3600,90/3600,384); % kg/s
-T_w_out = T_w_in - Q_Hex./(mdot_HEX.*cp_water);
 
-% Log Mean Temperature Difference through HEX
+% Candidate evaporator temperatures BELOW the desired water outlet
+T_evap_surface = linspace(288.15,292.9,100);
+T_rad_candidates = T_evap_surface - 3; % assumed downstream drop
+
+% Calc Log mean temperature difference
 DT_in = T_w_in - T_evap_surface;
 DT_out = T_w_out - T_evap_surface;
 
-% Filter out values that are negative
-feasible = DT_out > 0;
-Del_T_lm = nan(size(mdot_HEX));
+feasible = (DT_in > 0) & (DT_out > 0);
+
+Del_T_lm = nan(size(T_evap_surface));
 Del_T_lm(feasible) = ...
-    (DT_in - DT_out(feasible)) ./ ...
-    log(DT_in ./ DT_out(feasible));
+    (DT_in(feasible) - DT_out(feasible)) ./ ...
+    log(DT_in(feasible)./DT_out(feasible));
+
+UA_required = Q_Hex./Del_T_lm;
+
 
 R_we_allowable = Del_T_lm/Q_Hex; % K/W
 
 
 N_water = linspace(1,48*8,384);                % Number of water channels
-D_water = 0.001;                            % m Assumed 1 mm hole
+D_water = 0.002;                            % m Assumed 1 mm hole
 L_water = 0.25;                             % m
 k_water = 0.62;                             % W/(m K), at 34degC
 k_Cu = 400;                                 % W/(m K)
@@ -364,44 +371,42 @@ R_Cu = t_eff./(k_Cu.*A_eff);
 % Copper spreading resistance
 
 for i=1:length(t_eff)
-
+    fprintf("Channel analysis with effective copper thickness = %.2f mm \n", t_eff(i)*1000)
     R_total = R_conv + R_Cu(i,:);
     U_A = 1./R_total;             % rows = thickness cases
     
-    %U_A = 1./R_conv;                             % overallHeat Tran Coefficient
-    
-    % First flow rate giving T_w_out > T_evap_surface
-    idx_flow = find(feasible, 1, 'first');
-    
-    if isempty(idx_flow)
-        error('No flow rate in the sweep is physically feasible.');
-    end
     
     
-    mdot_min = mdot_HEX(idx_flow);
-    U_A_min = Q_Hex/Del_T_lm(idx_flow);
+   %  mdot_min = mdot_HEX(idx_flow);
+   %  U_A_min = Q_Hex/Del_T_lm(idx_flow);
+   % 
+   %  fprintf('First feasible sampled flow: %.2f kg/h\n', mdot_min*3600);
+   %  fprintf('Required UA at that flow: %.2f W/K\n', U_A_min);
+   % 
+   % idx_channels_min = find(U_A >= U_A_min, 1, 'first');
+   % 
+   %  N_water_min = NaN;
+   %  if ~isempty(idx_channels_min)
+   %      N_water_min = ceil(N_water(idx_channels_min));
+   %  end
+   %  fprintf('Minimum: %.2f 1mm diameter channels \n', N_water_min)
     
-    fprintf('First feasible sampled flow: %.2f kg/h\n', mdot_min*3600);
-    fprintf('Required UA at that flow: %.2f W/K\n', U_A_min);
-    
-   idx_channels_min = find(U_A >= U_A_min, 1, 'first');
 
-    N_water_min = NaN;
-    if ~isempty(idx_channels_min)
-        N_water_min = ceil(N_water(idx_channels_min));
-    end
-    fprintf('Minimum: %.2f 1mm diameter channels \n', N_water_min)
     
+    U_A_design = Q_Hex/Del_T_lm(end);
+    fprintf('Overall design heat transfer coefficient = %.2f W/K\n', U_A_design)
+    fprintf('Log mean temperature difference = %.2f deg K\n', Del_T_lm(end))
+    fprintf('Heat transport across the HEX = %.2f W \n\n', Del_T_lm(end)*U_A_design)
     
-    U_A_design_min = Q_Hex/Del_T_lm(end);
-    
-    idx = find(U_A >= U_A_design_min, 1, 'first');
+    idx = find(U_A >= U_A_design, 1, 'first');
     
     if isempty(idx)
         error('No channel count meets the required UA.');
     else
         N_water_design = ceil(N_water(idx));
     end
+
+    
     
     
     figure()
@@ -410,12 +415,12 @@ for i=1:length(t_eff)
     t_eff(i)*1000))
     xlabel("Number of 1mm diameter water channels")
     ylabel('Overall Thermal Conductance, UA [W/K]')
-    if isfinite(N_water_min)
-    xline(N_water_min, '--y', ...
-        sprintf('Minimum-flow case: %d channels', N_water_min), ...
-        'LabelOrientation', 'horizontal', ...
-        'LabelVerticalAlignment', 'bottom');
-    end
+    % if isfinite(N_water_min)
+    % xline(N_water_min, '--y', ...
+    %     sprintf('Minimum-flow case: %d channels', N_water_min), ...
+    %     'LabelOrientation', 'horizontal', ...
+    %     'LabelVerticalAlignment', 'bottom');
+    % end
     xline(N_water_design, '--c', ...
     sprintf('%.1f kg/h design: %d channels', ...
         mdot_HEX(end)*3600, N_water_design), ...
@@ -425,18 +430,43 @@ for i=1:length(t_eff)
 
 end
 
-fprintf('Hex Design Mass Flow Rate: %.2f kg/h\n', mdot_HEX(end)*3600);
-fprintf('Hex exit water temperature: %.2f kg/h\n', T_w_out(end));
-fprintf('Hex exit water temperature: %.2f kg/h\n', T_w_out(end));
+fprintf('Hex Design Mass Flow Rate: %.2f kg/h\n', mdot_HEX*3600);
+fprintf('Hex exit water temperature: %.2f K\n\n', T_w_out(end));
 
 
+HeatPipe_Area = pi/4*0.0127^2;
+WaterPipe_Area = pi/4*D_water^2 * N_water_design;
+TotalBoreArea = HeatPipe_Area + WaterPipe_Area;
 
+HexCrossArea = 2.2/100 * 6/100 * 25.6/100;
 
 % Design consideration:
 % We want to optimize the HEX to have a 4 deg Temp drop to ensure that the
 % radiator can stay as hot as possible which increases efficiency.
 % Therefore we need to increase the number of water channels to reduce the
 % resistance of the convection through the HEX.  
+
+
+%% Condesing Heat Exchanger (Water/Air - RH)
+
+% Questions for Operation
+% Where is the cooling coming from to bring the Air temp down to 12C? If
+% air enters at 30C , our exit temp from the HEX is only 304.49
+
+fprintf('Condensing Heat Exchanger Analysis\n');
+
+Q_CHE = 80; % W
+cp_air = 1000; % J/kgK
+T_air_in = 30+273; % Deg K
+T_air_out = 12+273; % Deg K
+DT_air = T_air_in-T_air_out;
+DT_water = T_LCG - T_w_out(end);
+
+mdot_air = Q_CHE/(cp_air*DT_air);
+mdot_water = Q_CHE/(cp_water*DT_water);
+
+fprintf('Mass flow rate of air through CHE: %.4f kg/hr\n', mdot_air*3600);
+fprintf('Mass flow rate of water through CHE: %.4f kg/hr\n', mdot_water*3600);
 
 
 
@@ -465,24 +495,117 @@ fprintf('Hex exit water temperature: %.2f kg/h\n', T_w_out(end));
 %% Pipe Flow (Convective losses in the PLSS)
 
 %% Pumps (Account for frictional and heating effects from the pump)
+%
+% % Can also use an equivalent expression 
+% Power_pump = DeltaPressure*mdot/(rho_water*pump_efficiency);
+% % Use voltage and current from the pump's operating point
+% P_pump_elec = V_pump * I_pump;       % W
+% 
+% % Preliminary assumption: all pump power heats the water loop
+% Q_pump_water = P_pump_elec;
+% 
+% % Add once to the water-loop heat rejection requirement
+% Q_HEX_required = Q_other_water_loads + Q_pump_water;
+% 
+% % Equivalent temperature rise per circuit
+% mdot_water = 90/3600;               % kg/s; use actual operating flow
+% DT_pump_equiv = Q_pump_water/(mdot_water*cp_water);
+% 
+% % Pressure losses across the system due to frictional in the pipes
+% 
+% v = mdot_water/(rho_water*pi*D_line^2/4);
+% Re = rho_water*v*D_line/mu_water;
+% 
+% f_D = 64/Re;  % Only for fully developed laminar flow
+% 
+% DP_pipe = f_D*(L_line/D_line)*(rho_water*v^2/2);
+% DP_fittings = K_total*(rho_water*v^2/2);
+% 
+% Q_friction_line = (DP_pipe + DP_fittings) * ...
+%                  (mdot_water/rho_water); % W; diagnostic, already within pump budget
 
 %% Valves (Minimal)
 
 %% Air Warmer
 
-%% Part three: Heat Rejection [Zach Alles]
+%% Suit Radiator
 % The results from the previous section will be used at inputs fro this
 % section. Heat that is trasnferred from the pipes to our radiator
 % will be modeled. Thereafter, 1D heat transfer will be applied across the
 % radiator, and the radiative, conductive, and convective heat rejection
 % into the Martian atmosphere will be measured. 
 
-% Back Radiator Rejection
 
-% Suit Radiator Rejection
+A_suit_rad = linspace(0.2,1,100);           % m^2
+epsilon_suit_pixels = linspace(0.3,0.8,100);
+alpha_solar = 0.17;
 
-%% Part four: Analysis [Raaghav Lele]
-% After part 3, The remaining values will be the temperature of the water 
-% after the entire process is done, and the time taken to complete the loop
-% from part 1 thru 3. The entire process will be iterative and will see if
-% the heat rejection rate and system durability will last a full 8 hour EVA
+
+
+% Same assumed temperature as RAFT-X radiator
+T_suit_rad = T_rad;                        % K
+
+% Illustrative vertical surface over flat terrain
+F_ground = 0.5;
+F_sky = 0.5;
+
+% Incident thermal IR, BEFORE absorption by the pixels
+G_IR = F_ground*epsilon_ground*sigma*T_ground^4 ...
+     + F_sky*sigma*T_sky^4;                % W/m^2
+
+% Assumes surface directly faces the Sun.
+% Replace with actual incident solar irradiance for its orientation.
+G_solar = q_solar_DNI;                     % W/m^2
+
+% Evaluate every area/emissivity combination
+[A_grid, epsilon_grid] = meshgrid( ...
+    A_suit_rad, epsilon_suit_pixels);
+
+% Positive = net heat rejection
+% Assumes thermal-IR absorptivity equals thermal emissivity
+Qout_suit = A_grid .* ...
+    (epsilon_grid .* (sigma*T_suit_rad^4 - G_IR) ...
+    - alpha_solar*G_solar);
+
+Q_radiative_net = A_grid .* ...
+    (epsilon_grid .* (sigma*T_suit_rad^4 - G_IR) ...
+    - alpha_solar*G_solar);
+
+Q_conv_suit = h*A_grid*(T_suit_rad - T_air);
+
+Q_total_suit = Q_radiative_net + Q_conv_suit;
+% Subtract absorbed albedo when included.
+
+% Plot several fixed epsilon values for a given area
+figure
+contourf(A_grid, epsilon_grid, Qout_suit, ...
+    30, 'LineColor', 'none');
+
+cb = colorbar;
+cb.Label.String = 'Net heat rejection [W]';
+
+xlabel('Suit radiator area [m^2]');
+ylabel('Pixel infrared emissivity');
+title(sprintf('Suit radiator capacity at %.2f K', T_suit_rad));
+colormap(turbo)
+grid on
+
+figure
+hold on
+
+for epsilon = [0.3 0.5 0.8]
+    Q = A_suit_rad .* ...
+        (epsilon*(sigma*T_suit_rad^4 - G_IR) ...
+        - alpha_solar*G_solar);
+
+    plot(A_suit_rad, Q, 'LineWidth', 2, ...
+        'DisplayName', sprintf('\\epsilon = %.1f', epsilon));
+end
+
+yline(0, 'k--', 'HandleVisibility', 'off');
+xlabel('Suit radiator area [m^2]');
+ylabel('Net heat rejection [W]');
+title('Suit radiator capacity versus area');
+legend('Location', 'best');
+grid on
+hold off
