@@ -1,0 +1,149 @@
+EVA WORKFLOW RESTRUCTURE REVIEW
+==============================
+
+CONCLUSION
+The latest saved two-stage results reproduce the pre-restructure exported
+results. No numerical regression was found in the compared data or reviewed
+numerical kernels. This is saved-run equivalence plus source/static review;
+a fresh end-to-end execution and graphical rendering could not be completed
+because MATLAB startup fails with MathWorks service error 5201.
+
+REFERENCE AND SCOPE
+Reference code: ../Metabolic_EVA_Sim.m and its original JOS3/helpers.
+Reference saved outputs: ../EVA_Sim_Results.xlsx and
+../EVA_Sim_Component_Inputs.xlsx (pre-restructure exports).
+Current saved outputs: +Data_Functions/EVA_Data.mat.
+The original source files, Excel references and current MAT were not modified.
+Tests read numeric data, strings, schemas, row counts and physical histories.
+The MAT reader decoded current MATLAB table/string objects and cross-checked
+column names, lengths and values against the independent Excel exports.
+
+SAVED-OUTPUT COMPARISON
+57,697 numeric values compared in 19 tables/histories. Absolute tolerance
+1e-9 plus relative tolerance 1e-10. Maximum finite absolute difference was
+3.1833e-12, in reconstructed cumulative LCG energy; all other compared numeric
+values were identical except metabolic-average rounding (5.7e-14 W).
+170 rejected search objectives are Inf in MATLAB; their original Excel export
+uses 65535. These were normalized only for failed-search objective comparisons.
+Five text-only differences were found (three performance labels, two copies
+of a sensitivity failure reason). Original wording is restored in the code;
+the saved MAT retains its previous text until the scripts are rerun.
+
+Metabolic Rates: 3 rows, 6 numeric values.
+LCG: 7 rows, 14 numeric values.
+Air: 12 rows, 24 numeric values.
+Moisture: 15 rows, 30 numeric values.
+Condensate: 4 rows, 8 numeric values.
+Component sizing: 3 rows, 18 numeric values.
+Component performance: 16 rows, 16 numeric values.
+Sensitivity analysis: 12 rows, 69 numeric values.
+Body heat balance: 9 rows, 36 numeric values.
+LCG literature comparison: 7 rows, 49 numeric values.
+LCG validation metrics: 1 rows, 5 numeric values.
+Body temperatures: 2 rows, 16 numeric values.
+Body heat history: 1920 rows, 21120 numeric values.
+Literature data: 7 rows, 105 numeric values.
+LCG Time History: 1920 rows, 11520 numeric values.
+EVA Requirements: 960 rows, 17280 numeric values.
+EVA Comparison: 1 rows, 47 numeric values.
+Load Diagnostics: 960 rows, 4800 numeric values.
+Sizing Search: 174 rows, 2534 numeric values.
+
+NUMERICAL SOURCE REVIEW
+Oxygen/water properties, saturation pressure, wet-fin transfer, condenser gas
+properties, reheater sizing, suit equilibrium, design reweighting, JOS-3 body
+solver, bloodflow, coefficients and neutral-temperature equations match the
+original numerical code after package qualification/comments are ignored.
+Input defaults removed from functions are supplied explicitly by the scripts.
+The humidity-search differences require these formerly defaulted settings;
+all main-script settings retain the original operating values.
+Task scaling, final 250-minute resistance-reference walk, body heat balance,
+component packaging, off-nominal sensitivity and duration-weighted reporting
+were reviewed against their original implementations. Body-history cell
+preallocation replaces table growth without changing row order or calculations.
+The unused routing-volume temporary was removed; routing remains in the actual
+condenser envelope calculation. Storage properties and geometry reproduce the
+original component outputs exactly.
+Exact-input physiology caching no longer fingerprints source files, as part
+of removing path/source tracking. After editing numerical functions, run
+clear functions before another calculation, as documented in READ-ME.txt.
+
+SAVED-RESULT INTEGRITY
+PASS: METMAN StartTime_hr
+PASS: METMAN EndTime_hr
+PASS: METMAN Activity
+PASS: METMAN MetabolicRate_kJ_hr
+PASS: Nominal source Time_min
+PASS: Nominal source MetabolicRate_Btu_hr
+PASS: Nominal source Activity
+PASS: Nominal 960 contiguous intervals over 480 min
+PASS: Nominal all physiology fields finite
+PASS: Nominal body energy closure
+PASS: Nominal gas mass and energy closure
+PASS: Nominal interval sizing load equals physiology
+PASS: Nominal regional source interface closes
+PASS: OffNominal 960 contiguous intervals over 480 min
+PASS: OffNominal all physiology fields finite
+PASS: OffNominal body energy closure
+PASS: OffNominal gas mass and energy closure
+PASS: OffNominal interval sizing load equals physiology
+PASS: OffNominal regional source interface closes
+PASS: Nominal and off-nominal identical before 230 min
+PASS: Off-nominal final walking block starts at 230 min
+PASS: Hardware uses off-nominal profile
+PASS: Reheater internal samples have expected dimensions
+PASS: Hardware mass conservation
+PASS: Hardware phase energy conservation
+PASS: All factors tested at +/-10 and +/-50 percent
+PASS: Infeasible sensitivity cases have reasons and missing metrics
+
+Both physiology cases have 960 half-minute intervals over 480 minutes.
+They are identical through minute 230, then the off-nominal walk replaces
+the final 250 minutes. Hardware Profile equals the off-nominal SizingProfile.
+All physiology values are finite. Maximum body-balance residual is below
+1.11e-10 W; maximum gas-energy residual is below 8.15e-7 W and gas-water
+residual below 1.64e-7 g/min. Hardware mass residual is 3.33e-16 kg and
+phase-energy residual 7.11e-15 J. Nine sensitivity trials are feasible;
+three infeasible trials have explicit reasons and missing numerical metrics.
+
+REHEATER SAMPLE COUNT
+29,760 entries are intentional, not an array expansion error. Each of the
+960 intervals stores 30 internal one-second control samples plus one endpoint.
+The reheater is sized at these instantaneous states; plots use 960 interval
+averages. This sample collection and sizing logic are unchanged from before
+the restructure. No reduction/downsampling was applied.
+
+FIXES MADE DURING THIS REVIEW
+- Stage 1 figures now run 1-8; stage 2 runs 9-13, in creation order.
+  LCG remains 3; astronaut moisture remains 4; nominal body balance is 7;
+  held-out LCG benchmark is 8. Hardware figures occupy 9-13.
+- Figures clear before being redrawn, avoiding repeated-run plot accumulation.
+- Console reporting is limited to the requested eight tables (five physiology,
+  three hardware). Detailed body/LCG diagnostic tables remain saved in the MAT.
+  An infeasible baseline prints its explicit feasibility/failure report.
+- Restored the original nominal METMAN crew-reference assertion, alongside
+  the existing aerobic/resistance checks.
+- Restored original component-performance and sensitivity-failure wording.
+- Updated READ-ME.txt with plot order, reporting and sample-count explanation.
+These fixes change presentation/validation, not numerical equations or results.
+
+STATIC AND EXECUTION CHECKS
+All 24 MATLAB files pass standalone MATLAB Code Analyzer with no diagnostics.
+All 51 qualified package references resolve to their actual function files.
+Both scripts save before starting any plotting. No addpath, directory discovery,
+Excel export, run metadata or archiving was introduced.
+MATLAB was attempted with a writable preferences directory; startup fails with
+MathWorks service error 5201 before any MATLAB code executes. Therefore fresh
+runtime, visual rendering and comparative execution-time benchmarks are not
+claimed. The saved baseline design's Runtime_s is about 10.55 seconds; this is
+not a fresh measurement or the total runtime including sensitivity.
+
+NEXT RUN
+Set Current Folder to EVA_Workflow, then run Metabolic_EVA_Sim.m followed by
+PLSS_Thermal_Sizing.m. Current result tables and plots will use the corrected
+presentation. Existing saved numerical results were preserved during review.
+
+NUMERICAL EQUIVALENCE IS NOT EXPERIMENTAL VALIDATION
+Matching the original run establishes restructure consistency, not accuracy of
+the underlying physiology, suit boundary assumptions or preliminary hardware
+correlations. The literature limitations in READ-ME.txt still apply.
