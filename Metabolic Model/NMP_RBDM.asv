@@ -149,20 +149,54 @@ mass_remaining_kg(depleted) = NaN;
 P_tank_psia = mass_remaining_kg * R_O2 * T_tank_K / ...
     (V_tank_m3 * psi_to_Pa);
 
-walkback_speed = 5; % km/hr
+walkback_speed = 3; % km/hr
 walkback_speed_adj = walkback_speed * 1000 * (1/60); % m/min
 astronaut_mass = 75; %kg
+plss_mass = 50;
 grade = 0;
 
 if (walkback_speed < 7.2) % walking regime
-    walkback_consumption = astronaut_mass * (0.1*walkback_speed_adj + 1.8*walkback_speed_adj*grade + 3.5); % mL/min
-    walkback_consumption = walkback_consumption * 1.429 * 1000; % g/min
+    walkback_consumption = (astronaut_mass+plss_mass) * (0.1*walkback_speed_adj + 1.8*walkback_speed_adj*grade + 3.5); % mL/min
+    walkback_consumption = walkback_consumption * 1.429 / 1000; % g/min w/10% suit mobility decrease
 else % running regime
-    walkback_consumption = astronaut_mass * (0.2*walkback_speed_adj + 0.9*walkback_speed_adj*grade + 3.5); % mL/min
-    walkback_consumption = walkback_consumption * 1.429 * 1000; % g/min
+    walkback_consumption = (astronaut_mass+plss_mass) * (0.2*walkback_speed_adj + 0.9*walkback_speed_adj*grade + 3.5); % mL/min
+    walkback_consumption = walkback_consumption * 1.429 / 1000; % g/min w/10% suit mobility decrease
 end
 
-walkback_radius = mass_remaining_
+walkback_radius = ((mass_remaining_kg*1000)/walkback_consumption)*(walkback_speed_adj/1000);
+
+test_masses = 50:150; %kg
+test_speeds = 0.1:0.1:25; %km/hr
+ending_radius = zeros([length(test_masses),length(test_speeds)]);
+
+for i = 1:length(test_masses)
+    for j = 1:length(test_speeds)
+        walkback_speed_adj = test_speeds(j) * 1000 * (1/60); % m/min
+        if (walkback_speed < 7.2) % walking regime
+            walkback_consumption = (test_masses(i) * (1 + (plss_mass/test_masses(i)))) * (0.1*walkback_speed_adj + 1.8*walkback_speed_adj*grade + 3.5); % mL/min
+            walkback_consumption = walkback_consumption * 1.429 / 1000; % g/min
+        else % running regime
+            walkback_consumption = (test_masses(i) * (1 + (plss_mass/test_masses(i)))) * (0.2*walkback_speed_adj + 0.9*walkback_speed_adj*grade + 3.5); % mL/min
+            walkback_consumption = walkback_consumption * 1.429 / 1000; % g/min
+        end
+        ending_radius(i,j) = ((mass_remaining_kg(24)*1000)/walkback_consumption)*(walkback_speed_adj/1000); %km
+    end
+end
+
+figure()
+plot(test_masses,ending_radius(:,end))
+xlabel('Astronaut Mass (kg)')
+ylabel('Ending Walkback at Optimal Speed(km)')
+
+mass_of_interest = 115.2;
+index_of_interest = find((test_masses >= mass_of_interest),1);
+figure()
+plot(test_speeds,ending_radius(index_of_interest,:))
+xlabel('Walking Speed (km/hr)')
+ylabel('Ending Radius (km)')
+title('Ending Radius vs Walking Speed for Astronaut Mass of',)
+
+
 
 fprintf('\n--- Regulated PLSS Tank Depletion (ideal gas / isothermal) ---\n');
 fprintf('Initial tank inventory: %.3f kg O2\n', mass_initial_kg);
@@ -178,6 +212,7 @@ end
 fprintf('Suit regulator setpoint: %.1f psia (not modeled dynamically)\n', ...
     P_suit_psia);
 
+
 figure();
 plot(Nominal_Time_hours, P_tank_psia, 'LineWidth', 1.5);
 title('PLSS Oxygen Tank Pressure vs EVA Time');
@@ -191,6 +226,16 @@ title('PLSS Oxygen Stored vs EVA Time');
 xlabel('EVA Time (hours)');
 ylabel('Oxygen Mass Remaining (kg)');
 grid on;
+
+
+figure();
+plot(Nominal_Time_hours, walkback_radius, 'LineWidth', 1.5);
+title('Max Distance from Hab vs Time');
+xlabel('EVA Time (hours)');
+ylabel('Walkback Radius (km)');
+grid on;
+
+
 
 % A regulator inlet-pressure cutoff should be added once manufacturer
 % minimum inlet pressure at the required flow is known. The pressure curve
